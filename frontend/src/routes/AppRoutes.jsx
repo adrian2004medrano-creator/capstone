@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import Layout from "../components/Layout.jsx";
 
 import Login from "../pages/Login.jsx";
@@ -22,11 +22,12 @@ const CASE_ROLES = ["superadmin", "admin", "social_worker"];
 const DASHBOARD_ROLES = [...CASE_ROLES, "psychometrician", "user"];
 
 function ProtectedRoute({ children, allowedRoles = DASHBOARD_ROLES }) {
+  const location = useLocation();
   const authenticated = isAuthenticated();
   const userRole = getUserRole();
 
   if (!authenticated) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
   if (!allowedRoles.includes(userRole)) {

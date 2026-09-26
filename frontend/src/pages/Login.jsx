@@ -1,10 +1,15 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowLeft, Check, KeyRound, Lock, Mail } from "lucide-react";
 import api from "../services/api.js";
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const returnTo = location.state?.from;
+  const destination = returnTo && typeof returnTo.pathname === "string" && returnTo.pathname.startsWith("/")
+    ? `${returnTo.pathname}${returnTo.search || ""}${returnTo.hash || ""}`
+    : "/dashboard";
   const [form, setForm] = useState({ email: "", password: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -19,9 +24,9 @@ export default function Login() {
 
   useEffect(() => {
     if (localStorage.getItem("kalakbay_auth") === "true" && localStorage.getItem("kalakbay_token")) {
-      navigate("/dashboard", { replace: true });
+      navigate(destination, { replace: true });
     }
-  }, [navigate]);
+  }, [destination, navigate]);
 
   const handleChange = (e) => setForm((current) => ({ ...current, [e.target.name]: e.target.value }));
 
@@ -37,7 +42,7 @@ export default function Login() {
       localStorage.setItem("kalakbay_role", user.role);
       localStorage.setItem("kalakbay_token", accessToken);
       localStorage.setItem("kalakbay_user", JSON.stringify(user));
-      navigate("/dashboard", { replace: true });
+      navigate(destination, { replace: true });
     } catch (err) {
       setError(err?.response?.data?.message || "Could not sign in. Check that the backend is running.");
     } finally {

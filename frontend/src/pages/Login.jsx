@@ -237,7 +237,7 @@ export default function Login() {
           </p>
           <div className="mt-14 flex items-center gap-3 text-xs text-white/45">
             <span className="h-px w-10 bg-[#E4B968]" />
-            KALAKBAY AI <span className="text-white/25">/</span> Staff portal
+            KALAKBAY AI <span className="text-white/25">/</span> Manila Boys&apos; Town Complex
           </div>
         </div>
       </div>

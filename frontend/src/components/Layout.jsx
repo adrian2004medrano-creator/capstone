@@ -8,7 +8,6 @@ const PAGE_META = {
   "/youth": { title: "Client Profiles", subtitle: "Case records for all clients currently in care" },
   "/idp": { title: "Individual Development Plans", subtitle: "Track goals and progress per client" },
   "/counseling": { title: "Counseling Records", subtitle: "Session logs and behavioral notes" },
-  "/reports": { title: "Reports & Analytics", subtitle: "Institutional insights generated from case data" },
   "/admin": { title: "Admin Management", subtitle: "Accounts, task assignment, and audit logs" },
   "/profile": { title: "My Profile", subtitle: "Your account details and profile photo" },
 };

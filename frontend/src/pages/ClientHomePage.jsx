@@ -31,6 +31,19 @@ const INITIAL_FORM = {
   present_whereabouts: "",
   behavior_notes: "",
 };
+const CASE_CATEGORIES = [
+  "Reach-Out",
+  "Foundling",
+  "Abandoned",
+  "Physically Abused",
+  "Sexually Abused",
+  "OSAEC",
+  "Neglected",
+  "Curfew",
+  "Orphaned",
+  "Homeless",
+  "Street Child",
+];
 const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api").replace(/\/api\/?$/, "");
 
 const imageUrl = (value) => value?.startsWith("http") ? value : `${API_ORIGIN}${value}`;
@@ -344,7 +357,10 @@ export default function ClientHomePage({ homeName }) {
 
               <label className="space-y-1">
                 <span className="text-sm font-medium text-ink900">Case Category</span>
-                <input name="case_category" value={form.case_category} onChange={handleChange} className="w-full rounded-lg border border-ink/10 bg-surface px-3 py-2.5 outline-none focus:border-primary" />
+                <select name="case_category" value={form.case_category} onChange={handleChange} className="w-full rounded-lg border border-ink/10 bg-surface px-3 py-2.5 outline-none focus:border-primary">
+                  <option value="">Select a case category</option>
+                  {CASE_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
+                </select>
               </label>
 
               <label className="space-y-1 md:col-span-2">

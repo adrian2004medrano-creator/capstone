@@ -4,7 +4,6 @@ import {
   House,
   ClipboardList,
   MessageSquareText,
-  BarChart3,
   ShieldCheck,
   Compass,
   X,
@@ -18,7 +17,6 @@ const navItems = [
   { to: "/kids-home", label: "Kids Home", icon: House },
   { to: "/aged-home", label: "Home for the Aged", icon: Building2 },
   { to: "/kamada", label: "Kamada", icon: House },
-  { to: "/reports", label: "Reports & Analytics", icon: BarChart3 },
   { to: "/admin", label: "Admin Management", icon: ShieldCheck },
 ];
 
@@ -27,7 +25,7 @@ export default function Sidebar({ isOpen, onClose }) {
   const isPsychometrician = role === "psychometrician" || role === "user";
   const visibleNavItems = navItems.filter(({ to }) => {
     if (to === "/admin") return role === "superadmin";
-    if (isPsychometrician) return ["/dashboard", "/reports"].includes(to);
+    if (isPsychometrician) return to === "/dashboard";
     return true;
   });
   const navLinkClass = ({ isActive }) =>
@@ -85,13 +83,6 @@ export default function Sidebar({ isOpen, onClose }) {
           ))}
         </nav>
 
-        <div className="mx-3 mb-4 rounded-lg border border-white/[0.08] bg-white/[0.035] px-4 py-4">
-          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#E4B968]">Clinical reminder</p>
-          <p className="text-[11px] leading-relaxed text-white/55">
-            Predictive alerts are guidance only, every flagged case still needs a
-            professional&apos;s judgment.
-          </p>
-        </div>
       </aside>
     </>
   );

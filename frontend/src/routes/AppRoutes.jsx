@@ -13,7 +13,6 @@ import YouthProfile from "../pages/YouthProfile.jsx";
 import ClientProfile from "../pages/ClientProfile.jsx";
 import IDP from "../pages/IDP.jsx";
 import Counseling from "../pages/Counseling.jsx";
-import Reports from "../pages/Reports.jsx";
 import Admin from "../pages/Admin.jsx";
 import Profile from "../pages/Profile.jsx";
 
@@ -138,14 +137,7 @@ export default function AppRoutes() {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/reports"
-          element={
-            <ProtectedRoute allowedRoles={DASHBOARD_ROLES}>
-              <Reports />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/reports" element={<Navigate to="/dashboard" replace />} />
         <Route
           path="/admin"
           element={

@@ -53,7 +53,7 @@ export default function Login() {
 
           <h1 className="font-display text-[27px] font-semibold tracking-normal text-ink900">Welcome back</h1>
           <p className="mb-8 mt-2 text-sm text-muted">
-            Sign in to your staff account.
+            Sign in to your account.
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">

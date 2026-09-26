@@ -27,7 +27,15 @@ const requireAuth = (req, res, next) => {
 
   try {
     req.auth = jwt.verify(token, jwtSecret);
-    next();
+    db.query('SELECT id FROM users WHERE id = ?', [req.auth.id], (err, rows) => {
+      if (err) {
+        return res.status(500).json({ message: 'Could not verify the user account.' });
+      }
+      if (!rows.length) {
+        return res.status(401).json({ message: 'User account no longer exists. Please sign in again.' });
+      }
+      next();
+    });
   } catch {
     res.status(401).json({ message: 'Session expired or invalid. Please sign in again.' });
   }
@@ -916,10 +924,73 @@ app.put('/api/auth/me', requireAuth, imageUpload.single('profile_picture'), (req
   );
 });
 
+app.put('/api/auth/password', requireAuth, (req, res) => {
+  const currentPassword = String(req.body.current_password || '');
+  const newPassword = String(req.body.new_password || '');
+
+  if (!currentPassword || newPassword.length < 8 || newPassword.length > 128) {
+    return res.status(400).json({ message: 'Enter your current password and a new password between 8 and 128 characters.' });
+  }
+
+  db.query('SELECT password FROM users WHERE id = ?', [req.auth.id], (lookupError, rows) => {
+    if (lookupError) {
+      return res.status(500).json({ message: 'Could not verify your current password.' });
+    }
+    if (!rows.length) {
+      return res.status(404).json({ message: 'User account not found.' });
+    }
+    if (!bcrypt.compareSync(currentPassword, rows[0].password)) {
+      return res.status(400).json({ message: 'Your current password is incorrect.' });
+    }
+
+    const passwordHash = bcrypt.hashSync(newPassword, 10);
+    db.query('UPDATE users SET password = ? WHERE id = ?', [passwordHash, req.auth.id], (updateError) => {
+      if (updateError) {
+        return res.status(500).json({ message: 'Failed to update your password.' });
+      }
+      res.json({ message: 'Password updated successfully.' });
+    });
+  });
+});
+
 app.get('/api/users', requireAuth, requireSuperadmin, (req, res) => {
   db.query('SELECT id, first_name, last_name, age, email, role, created_at FROM users', (err, result) => {
     if (err) return res.status(500).json({ message: 'Error fetching users', error: err.message });
     res.json(result);
+  });
+});
+
+app.delete('/api/users/:id', requireAuth, requireSuperadmin, (req, res) => {
+  const targetId = Number(req.params.id);
+  if (!Number.isInteger(targetId) || targetId <= 0) {
+    return res.status(400).json({ message: 'Invalid user account ID.' });
+  }
+  if (targetId === Number(req.auth.id)) {
+    return res.status(400).json({ message: 'You cannot delete your own account.' });
+  }
+
+  db.query('SELECT profile_picture FROM users WHERE id = ?', [targetId], (lookupError, rows) => {
+    if (lookupError) {
+      return res.status(500).json({ message: 'Could not find the user account.', error: lookupError.message });
+    }
+    if (!rows.length) {
+      return res.status(404).json({ message: 'User account not found.' });
+    }
+
+    db.query('DELETE FROM users WHERE id = ?', [targetId], (deleteError, result) => {
+      if (deleteError) {
+        return res.status(500).json({ message: 'Failed to delete user account.', error: deleteError.message });
+      }
+      if (!result.affectedRows) {
+        return res.status(404).json({ message: 'User account not found.' });
+      }
+
+      const photoPath = rows[0].profile_picture;
+      if (photoPath?.startsWith('/uploads/')) {
+        fs.promises.unlink(path.join(uploadDirectory, path.basename(photoPath))).catch(() => {});
+      }
+      res.json({ message: 'User account deleted successfully.' });
+    });
   });
 });
 

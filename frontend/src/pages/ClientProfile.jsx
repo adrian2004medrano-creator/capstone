@@ -167,9 +167,17 @@ export default function ClientProfile() {
       <div className="rounded-xl2 bg-white p-6 shadow-card">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary-light text-lg font-bold text-primary-dark">
-              {client.name?.split(" ").map((word) => word[0]).join(" ").slice(0, 2) || "C"}
-            </div>
+            {client.present_picture ? (
+              <img
+                src={imageUrl(client.present_picture)}
+                alt={`${client.name} profile`}
+                className="h-16 w-16 shrink-0 rounded-full object-cover"
+              />
+            ) : (
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-primary-light text-lg font-bold text-primary-dark">
+                {client.name?.split(" ").map((word) => word[0]).join(" ").slice(0, 2) || "C"}
+              </div>
+            )}
             <div>
               <h2 className="font-display text-2xl font-bold text-ink900">{client.name}</h2>
               <p className="text-sm text-muted">Client ID: {client.id} · {client.home_name}</p>

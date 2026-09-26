@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { UserPlus, Users } from "lucide-react";
+import { Trash2, UserPlus, Users } from "lucide-react";
 import api from "../services/api.js";
 
 const INITIAL_FORM = {
@@ -7,7 +7,7 @@ const INITIAL_FORM = {
   last_name: "",
   age: "",
   email: "",
-  password: "",
+  password: "user123",
   role: "psychometrician",
 };
 
@@ -25,6 +25,8 @@ export default function Admin() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [deletingId, setDeletingId] = useState(null);
+  const currentUser = JSON.parse(localStorage.getItem("kalakbay_user") || "null");
 
   const loadUsers = async () => {
     try {
@@ -44,7 +46,11 @@ export default function Admin() {
 
   const handleChange = (event) => {
     const { name, value } = event.target;
-    setForm((current) => ({ ...current, [name]: value }));
+    setForm((current) => ({
+      ...current,
+      [name]: value,
+      ...(name === "role" ? { password: value === "social_worker" ? "admin123" : "user123" } : {}),
+    }));
   };
 
   const handleSubmit = async (event) => {
@@ -62,6 +68,24 @@ export default function Admin() {
       setError(err?.response?.data?.message || "Could not create the account.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async (user) => {
+    const fullName = `${user.first_name} ${user.last_name}`;
+    if (!window.confirm(`Permanently delete ${fullName}'s account? They will no longer be able to sign in.`)) return;
+
+    setDeletingId(user.id);
+    setError("");
+    setSuccess("");
+    try {
+      await api.delete(`/users/${user.id}`);
+      setUsers((current) => current.filter((item) => item.id !== user.id));
+      setSuccess(`${fullName}'s account was deleted.`);
+    } catch (err) {
+      setError(err?.response?.data?.message || "Could not delete the account.");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -98,7 +122,7 @@ export default function Admin() {
           </label>
           <label className="space-y-1">
             <span className="text-sm font-medium text-ink900">Temporary Password</span>
-            <input name="password" type="password" value={form.password} onChange={handleChange} required minLength={8} className={inputClass} />
+            <input name="password" type="text" value={form.password} onChange={handleChange} required minLength={form.role === "psychometrician" ? 7 : 8} autoComplete="new-password" className={inputClass} />
           </label>
           <label className="space-y-1">
             <span className="text-sm font-medium text-ink900">Role</span>
@@ -138,6 +162,7 @@ export default function Admin() {
                   <th className="px-3 py-3">Age</th>
                   <th className="px-3 py-3">Role</th>
                   <th className="px-3 py-3">Created</th>
+                  <th className="px-3 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-ink/5">
@@ -148,6 +173,22 @@ export default function Admin() {
                     <td className="px-3 py-3">{user.age}</td>
                     <td className="px-3 py-3">{ROLES.find(([value]) => value === user.role)?.[1] || user.role}</td>
                     <td className="px-3 py-3">{new Date(user.created_at).toLocaleDateString()}</td>
+                    <td className="px-3 py-3 text-right">
+                      {user.id === currentUser?.id ? (
+                        <span className="text-xs text-muted">Current account</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(user)}
+                          disabled={deletingId === user.id}
+                          aria-label={`Delete ${user.first_name} ${user.last_name}`}
+                          title="Delete account"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors hover:bg-risk-light hover:text-risk disabled:opacity-50"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

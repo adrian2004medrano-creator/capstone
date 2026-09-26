@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Camera, Check, Save, UserRound } from "lucide-react";
+import { Camera, Check, KeyRound, Save, UserRound } from "lucide-react";
 import api from "../services/api.js";
 
 const inputClass = "w-full rounded-lg border border-ink/15 bg-white px-3.5 py-2.5 text-sm text-ink900 outline-none transition-colors placeholder:text-muted/70 focus:border-primary";
@@ -17,6 +17,10 @@ export default function Profile() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [passwordForm, setPasswordForm] = useState({ current_password: "", new_password: "", confirm_password: "" });
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSuccess, setPasswordSuccess] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,6 +104,37 @@ export default function Profile() {
     }
   };
 
+  const handlePasswordChange = (event) => {
+    setPasswordForm((current) => ({ ...current, [event.target.name]: event.target.value }));
+    setPasswordError("");
+    setPasswordSuccess("");
+  };
+
+  const handlePasswordSubmit = async (event) => {
+    event.preventDefault();
+    setPasswordError("");
+    setPasswordSuccess("");
+
+    if (passwordForm.new_password !== passwordForm.confirm_password) {
+      setPasswordError("The new password and confirmation do not match.");
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      const { data } = await api.put("/auth/password", {
+        current_password: passwordForm.current_password,
+        new_password: passwordForm.new_password,
+      });
+      setPasswordForm({ current_password: "", new_password: "", confirm_password: "" });
+      setPasswordSuccess(data.message || "Password updated successfully.");
+    } catch (requestError) {
+      setPasswordError(requestError?.response?.data?.message || "Could not update your password.");
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
   if (loading) return <p className="text-sm text-muted">Loading profile...</p>;
 
   return (
@@ -170,6 +205,42 @@ export default function Profile() {
           </div>
         </form>
       )}
+
+      <section className="overflow-hidden rounded-xl2 border border-ink/[0.07] bg-white shadow-card">
+        <div className="flex items-center gap-3 border-b border-ink/[0.07] px-5 py-5 sm:px-7">
+          <KeyRound size={18} className="text-primary" />
+          <div>
+            <h3 className="font-display text-base font-semibold text-ink900">Change password</h3>
+            <p className="mt-1 text-sm text-muted">Verify your current password before choosing a new one.</p>
+          </div>
+        </div>
+
+        <form onSubmit={handlePasswordSubmit} className="space-y-5 px-5 py-6 sm:px-7">
+          {passwordError && <p role="alert" className="rounded-lg border border-risk/20 bg-risk-light px-3 py-2 text-sm text-risk">{passwordError}</p>}
+          {passwordSuccess && <p role="status" className="flex items-center gap-2 rounded-lg border border-primary/15 bg-primary-light px-3 py-2 text-sm text-primary-dark"><Check size={16} />{passwordSuccess}</p>}
+
+          <div className="grid gap-5 sm:grid-cols-2">
+            <label className="block text-xs font-semibold text-ink900 sm:col-span-2">
+              Current password
+              <input type="password" name="current_password" value={passwordForm.current_password} onChange={handlePasswordChange} required autoComplete="current-password" className={`${inputClass} mt-1.5 font-normal`} />
+            </label>
+            <label className="block text-xs font-semibold text-ink900">
+              New password
+              <input type="password" name="new_password" value={passwordForm.new_password} onChange={handlePasswordChange} required minLength={8} maxLength={128} autoComplete="new-password" className={`${inputClass} mt-1.5 font-normal`} />
+            </label>
+            <label className="block text-xs font-semibold text-ink900">
+              Confirm new password
+              <input type="password" name="confirm_password" value={passwordForm.confirm_password} onChange={handlePasswordChange} required minLength={8} maxLength={128} autoComplete="new-password" className={`${inputClass} mt-1.5 font-normal`} />
+            </label>
+          </div>
+
+          <div className="flex justify-end border-t border-ink/[0.07] pt-4">
+            <button type="submit" disabled={changingPassword} className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-60">
+              <KeyRound size={16} /> {changingPassword ? "Updating..." : "Update password"}
+            </button>
+          </div>
+        </form>
+      </section>
     </div>
   );
 }

@@ -69,25 +69,24 @@ export default function Dashboard() {
     : [];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-7">
       <section>
-        <p className="text-xs font-semibold uppercase tracking-[0.15em] text-primary">{ROLE_LABELS[role] || "Staff"} dashboard</p>
-        <h2 className="mt-1 font-display text-2xl font-bold text-ink900">
-          {isSuperadmin ? "System overview" : isPsychometrician ? "Behavior overview" : "Home and client overview"}
+        <h2 className="font-display text-[25px] font-semibold uppercase leading-tight text-[#262b30]">
+          My dashboard
         </h2>
-        <p className="mt-1 text-sm text-muted">
+        <p className="mt-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-[#7f8992]">
           {isSuperadmin
-            ? "Live client and staff account totals from the database."
+            ? "Live system and staff account overview"
             : isPsychometrician
-              ? "This role can see client names, ages, homes, profile pictures, and behavior notes only. Other personal and case details are restricted."
-              : "Live client totals grouped by home. Use the home pages to manage individual case records."}
+              ? "Anonymized aggregate case overview"
+              : "Live home and client overview"}
         </p>
       </section>
 
       {error && <div role="alert" className="rounded-lg border border-risk/20 bg-risk-light px-4 py-3 text-sm text-risk">{error}</div>}
 
       {loading ? (
-        <p className="rounded-xl2 bg-white p-6 text-sm text-muted shadow-card">Loading live dashboard data...</p>
+        <p className="rounded-lg border border-[#e3e6e9] bg-white p-6 text-sm text-muted">Loading live dashboard data...</p>
       ) : summary ? (
         <>
           <section className={`grid grid-cols-2 gap-4 ${stats.length === 3 ? "lg:grid-cols-3" : "lg:grid-cols-2"}`}>
@@ -95,7 +94,7 @@ export default function Dashboard() {
           </section>
 
           {isSuperadmin && summary.usersByRole?.length > 0 && (
-            <section className="rounded-xl2 bg-white p-5 shadow-card">
+            <section className="rounded-lg border border-[#e3e6e9] bg-white p-5 shadow-[0_1px_2px_rgba(22,28,33,0.04)]">
               <div className="mb-4 flex items-center gap-3 border-b border-ink/5 pb-4">
                 <UserRoundCog size={19} className="text-primary" />
                 <h3 className="font-display text-lg font-bold text-ink900">Accounts by role</h3>
@@ -111,7 +110,7 @@ export default function Dashboard() {
             </section>
           )}
 
-          <section className="rounded-xl2 bg-white p-5 shadow-card">
+          <section className="rounded-lg border border-[#e3e6e9] bg-white p-5 shadow-[0_1px_2px_rgba(22,28,33,0.04)]">
             <div className="mb-4 flex items-center gap-3 border-b border-ink/5 pb-4">
               {isPsychometrician ? <ClipboardList size={19} className="text-primary" /> : <BarChart3 size={19} className="text-primary" />}
               <div>

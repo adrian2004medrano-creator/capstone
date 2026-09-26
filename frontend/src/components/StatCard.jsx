@@ -6,8 +6,8 @@ export default function StatCard({ label, value, tone = "primary", icon: Icon })
   };
 
   return (
-    <div className="bg-white rounded-xl2 shadow-card p-5 flex items-center gap-4">
-      <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${toneMap[tone]}`}>
+    <div className="flex items-center gap-4 rounded-lg border border-[#e3e6e9] bg-white p-5 shadow-[0_1px_2px_rgba(22,28,33,0.04)]">
+      <div className={`flex h-11 w-11 items-center justify-center rounded-lg ${toneMap[tone]}`}>
         {Icon && <Icon size={20} strokeWidth={2} />}
       </div>
       <div>

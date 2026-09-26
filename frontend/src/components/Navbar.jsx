@@ -1,4 +1,4 @@
-import { Bell, Search, LogOut, Menu } from "lucide-react";
+import { Bell, Search, LogOut, Menu, Compass } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../services/api.js";
@@ -11,13 +11,14 @@ function readCachedProfile() {
   }
 }
 
-export default function Navbar({ title, subtitle, onToggleSidebar }) {
+export default function Navbar({ onToggleSidebar }) {
   const navigate = useNavigate();
   const [clientName, setClientName] = useState("");
   const [clientResults, setClientResults] = useState([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searching, setSearching] = useState(false);
   const [user, setUser] = useState(readCachedProfile);
+  const [currentTime, setCurrentTime] = useState(() => new Date());
   const searchRole = localStorage.getItem("kalakbay_role") || "user";
   const isPsychometrician = searchRole === "psychometrician" || searchRole === "user";
   const role = user?.role || localStorage.getItem("kalakbay_role") || "user";
@@ -26,6 +27,11 @@ export default function Navbar({ title, subtitle, onToggleSidebar }) {
   const profileImage = user?.profile_picture
     ? new URL(user.profile_picture, api.defaults.baseURL).href
     : "";
+
+  useEffect(() => {
+    const timerId = window.setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => window.clearInterval(timerId);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,25 +89,28 @@ export default function Navbar({ title, subtitle, onToggleSidebar }) {
   };
 
   return (
-    <header className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-ink/[0.08] bg-surface/95 px-4 py-3.5 backdrop-blur-md sm:px-6 lg:px-10">
-      <div className="flex items-center gap-3">
+    <header className="sticky top-0 z-20 flex min-h-[88px] items-center justify-between gap-3 border-b border-[#e2e5e8] bg-white px-3 sm:px-6 lg:px-9">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
         <button
           type="button"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-ink/10 bg-white text-ink900 md:hidden"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#e3e6e9] bg-white text-[#34383c] md:hidden"
           onClick={onToggleSidebar}
           aria-label="Toggle sidebar navigation"
         >
           <Menu size={18} />
         </button>
 
-        <div>
-          <h1 className="font-display text-lg font-semibold text-ink900 sm:text-xl">{title}</h1>
-          {subtitle && <p className="mt-0.5 hidden text-xs text-muted sm:block sm:text-sm">{subtitle}</p>}
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center sm:h-14 sm:w-14">
+          <img src="/manila-dsw-logo.svg" alt="Department of Social Welfare, City of Manila" className="h-full w-full object-contain" />
+        </div>
+        <div className="min-w-0">
+          <h1 className="truncate text-[12px] font-semibold leading-tight text-[#22272b] sm:text-[17px]">KALAKBAY AI <span className="font-normal text-[#a4aab0]">|</span> HOME CARE MANAGEMENT SYSTEM</h1>
+          <p className="mt-1 truncate text-[9px] font-medium uppercase tracking-[0.1em] text-[#78818a] sm:text-[11px]">Manila Boys&apos; Town Complex</p>
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <div className="relative hidden sm:block">
+      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+        <div className="relative hidden lg:block">
           <div className="flex items-center gap-2 rounded-lg border border-ink/10 bg-white px-3.5 py-2 focus-within:border-primary">
             <Search size={16} className="text-muted" />
             <input
@@ -152,7 +161,7 @@ export default function Navbar({ title, subtitle, onToggleSidebar }) {
 
         <button
           type="button"
-          className="relative flex h-10 w-10 items-center justify-center rounded-lg border border-ink/10 bg-white transition-colors hover:bg-surface"
+          className="relative hidden h-10 w-10 items-center justify-center rounded-md border border-[#e3e6e9] bg-white transition-colors hover:bg-[#f7f8f9] lg:flex"
         >
           <Bell size={17} className="text-ink900" />
           <span className="absolute top-2 right-2.5 w-2 h-2 rounded-full bg-risk" />
@@ -163,7 +172,7 @@ export default function Navbar({ title, subtitle, onToggleSidebar }) {
           onClick={() => navigate("/profile")}
           aria-label="Open your profile settings"
           title="Edit profile"
-          className="flex min-w-0 items-center gap-2 rounded-lg p-1.5 text-left transition-colors hover:bg-white focus-visible:outline-offset-1"
+          className="flex min-w-0 items-center gap-2 rounded-md p-1.5 text-left transition-colors hover:bg-[#f3f4f5] focus-visible:outline-offset-1"
         >
           {profileImage ? (
             <img src={profileImage} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
@@ -181,11 +190,23 @@ export default function Navbar({ title, subtitle, onToggleSidebar }) {
         <button
           type="button"
           onClick={handleLogout}
-          className="flex h-10 w-10 items-center justify-center rounded-lg text-muted transition-colors hover:bg-white hover:text-risk"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-[#747d85] transition-colors hover:bg-[#f3f4f5] hover:text-risk sm:h-10 sm:w-10"
           title="Log out"
         >
           <LogOut size={17} />
         </button>
+
+        <div className="hidden min-w-[142px] items-center gap-3 rounded-[10px] border border-[#e3e6e9] bg-[#fafbfc] px-3.5 py-2 sm:flex">
+          <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#22b85a] shadow-[0_0_0_4px_rgba(34,184,90,0.1)]" />
+          <div className="leading-tight">
+            <p className="text-sm font-semibold tabular-nums text-[#292e33]">
+              {currentTime.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+            </p>
+            <p className="mt-1 text-[9px] font-medium uppercase tracking-[0.08em] text-[#8a939b]">
+              {currentTime.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "2-digit", year: "numeric" })}
+            </p>
+          </div>
+        </div>
       </div>
     </header>
   );

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Check, Compass, KeyRound, Lock, Mail } from "lucide-react";
+import { ArrowLeft, Check, KeyRound, Lock, Mail } from "lucide-react";
 import api from "../services/api.js";
 
 export default function Login() {
@@ -100,8 +100,8 @@ export default function Login() {
       <div className="flex min-h-screen items-center justify-center px-6 py-12 sm:px-10">
         <div className="w-full max-w-[390px]">
           <div className="mb-12 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-ink">
-              <Compass size={20} className="text-white" strokeWidth={2.5} />
+            <div className="h-12 w-12 shrink-0">
+              <img src="/manila-dsw-logo.svg" alt="Department of Social Welfare, City of Manila" className="h-full w-full object-contain" />
             </div>
             <p className="font-display font-bold text-lg text-ink900">
               KALAKBAY <span className="text-primary">AI</span>

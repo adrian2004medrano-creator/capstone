@@ -3,6 +3,7 @@ const mysql = require('mysql2');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const nodemailer = require('nodemailer');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
@@ -17,6 +18,18 @@ if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
   throw new Error('JWT_SECRET must be set when NODE_ENV is production.');
 }
 const jwtSecret = process.env.JWT_SECRET || 'kalakbay-local-development-secret-change-before-deployment';
+const smtpUser = process.env.SMTP_USER || 'medrano.adrian.bsinfotech@gmail.com';
+const mailFrom = process.env.MAIL_FROM || smtpUser;
+const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
+const smtpConfigured = Boolean(process.env.SMTP_PASS);
+const mailTransporter = smtpConfigured
+  ? nodemailer.createTransport({
+  host: smtpHost,
+      port: Number(process.env.SMTP_PORT || 587),
+      secure: process.env.SMTP_SECURE === 'true',
+  auth: { user: smtpUser, pass: process.env.SMTP_PASS }
+    })
+  : null;
 const requireAuth = (req, res, next) => {
   const authorization = req.headers.authorization || '';
   const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
@@ -122,6 +135,23 @@ const db = mysql.createConnection({
   database: process.env.DB_NAME || 'kalakbay__ai'
 });
 
+const createPasswordResetCodesTable = () => {
+  db.query(`
+    CREATE TABLE IF NOT EXISTS password_reset_codes (
+      user_id INT PRIMARY KEY,
+      code_hash CHAR(64) NOT NULL,
+      expires_at DATETIME NOT NULL,
+      attempts TINYINT UNSIGNED NOT NULL DEFAULT 0,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_password_reset_user
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `, (err) => {
+    if (err) console.error('Failed to create password reset table:', err.message);
+    else console.log('Password reset table is ready.');
+  });
+};
+
 const createUsersTable = () => {
   const sql = `
     CREATE TABLE IF NOT EXISTS users (
@@ -164,6 +194,7 @@ const createUsersTable = () => {
         [...bootstrapAdmin, bootstrapAdmin[0], bootstrapAdmin[1], bootstrapAdmin[2], bootstrapAdmin[6], bootstrapAdmin[7]],
         (seedError) => {
           if (seedError) console.error('Failed to seed bootstrap superadmin:', seedError.message);
+          createPasswordResetCodesTable();
         }
       );
     };
@@ -1004,6 +1035,129 @@ app.post('/api/auth/login', (req, res) => {
       accessToken
     });
   });
+});
+
+const passwordResetResponse = {
+  message: 'If an account exists for that email, a password reset code has been sent.'
+};
+
+const hashResetCode = (userId, code) => crypto
+  .createHmac('sha256', jwtSecret)
+  .update(`${userId}:${code}`)
+  .digest('hex');
+
+app.post('/api/auth/forgot-password', (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 150) {
+    return res.status(400).json({ message: 'Enter a valid email address.' });
+  }
+  if (!mailTransporter) {
+    return res.status(503).json({ message: 'Password reset email is not configured. Contact the administrator.' });
+  }
+
+  db.query('SELECT id, first_name, email FROM users WHERE email = ?', [email], (userError, users) => {
+    if (userError) {
+      return res.status(500).json({ message: 'Could not request a password reset.' });
+    }
+    if (!users.length) return res.json(passwordResetResponse);
+
+    const user = users[0];
+    db.query('SELECT created_at FROM password_reset_codes WHERE user_id = ?', [user.id], (codeError, codes) => {
+      if (codeError) {
+        return res.status(500).json({ message: 'Could not request a password reset.' });
+      }
+      if (codes.length && Date.now() - new Date(codes[0].created_at).getTime() < 60_000) {
+        return res.json(passwordResetResponse);
+      }
+
+      const code = String(crypto.randomInt(100000, 1000000));
+      const codeHash = hashResetCode(user.id, code);
+      const expiresAt = new Date(Date.now() + 10 * 60_000);
+      db.query(
+        `INSERT INTO password_reset_codes (user_id, code_hash, expires_at, attempts)
+         VALUES (?, ?, ?, 0)
+         ON DUPLICATE KEY UPDATE code_hash = VALUES(code_hash), expires_at = VALUES(expires_at), attempts = 0, created_at = CURRENT_TIMESTAMP`,
+        [user.id, codeHash, expiresAt],
+        (saveError) => {
+          if (saveError) {
+            return res.status(500).json({ message: 'Could not request a password reset.' });
+          }
+
+          mailTransporter.sendMail({
+            from: mailFrom,
+            to: user.email,
+            subject: 'Your KALAKBAY AI password reset code',
+            text: `Hello ${user.first_name},\n\nYour password reset code is ${code}. It expires in 10 minutes. If you did not request this, you can ignore this email.\n\nKALAKBAY AI`,
+          }).then(() => {
+            res.json(passwordResetResponse);
+          }).catch((mailError) => {
+            console.error('Password reset email delivery failed:', mailError.message);
+            db.query('DELETE FROM password_reset_codes WHERE user_id = ? AND code_hash = ?', [user.id, codeHash], () => {});
+            res.status(503).json({ message: 'Could not send the reset email. Check the mail configuration or try again later.' });
+          });
+        }
+      );
+    });
+  });
+});
+
+app.post('/api/auth/reset-password', (req, res) => {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const code = String(req.body.code || '').trim();
+  const newPassword = String(req.body.new_password || '');
+  const invalidCode = () => res.status(400).json({ message: 'The reset code is invalid or expired.' });
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !/^\d{6}$/.test(code)) {
+    return invalidCode();
+  }
+  if (newPassword.length < 8 || newPassword.length > 128) {
+    return res.status(400).json({ message: 'The new password must be between 8 and 128 characters.' });
+  }
+
+  db.query(
+    `SELECT users.id, password_reset_codes.code_hash, password_reset_codes.expires_at, password_reset_codes.attempts
+     FROM users JOIN password_reset_codes ON password_reset_codes.user_id = users.id
+     WHERE users.email = ?`,
+    [email],
+    (lookupError, rows) => {
+      if (lookupError) return res.status(500).json({ message: 'Could not reset the password.' });
+      if (!rows.length) return invalidCode();
+
+      const reset = rows[0];
+      if (Number(reset.attempts) >= 5 || new Date(reset.expires_at).getTime() <= Date.now()) {
+        db.query('DELETE FROM password_reset_codes WHERE user_id = ?', [reset.id], () => {});
+        return invalidCode();
+      }
+
+      const expectedHash = hashResetCode(reset.id, code);
+      const actualHash = String(reset.code_hash);
+      const isValid = /^[a-f0-9]{64}$/i.test(actualHash)
+        && crypto.timingSafeEqual(Buffer.from(expectedHash, 'hex'), Buffer.from(actualHash, 'hex'));
+      db.query(
+        'UPDATE password_reset_codes SET attempts = attempts + 1 WHERE user_id = ? AND attempts < 5 AND expires_at > NOW()',
+        [reset.id],
+        (attemptError, attemptResult) => {
+          if (attemptError) return res.status(500).json({ message: 'Could not verify the reset code.' });
+          if (!attemptResult.affectedRows || !isValid) return invalidCode();
+
+          db.query(
+            'DELETE FROM password_reset_codes WHERE user_id = ? AND code_hash = ? AND expires_at > NOW()',
+            [reset.id, actualHash],
+            (consumeError, consumed) => {
+              if (consumeError) return res.status(500).json({ message: 'Could not reset the password.' });
+              if (!consumed.affectedRows) return invalidCode();
+
+              const passwordHash = bcrypt.hashSync(newPassword, 10);
+              db.query('UPDATE users SET password = ? WHERE id = ?', [passwordHash, reset.id], (updateError) => {
+                if (updateError) return res.status(500).json({ message: 'Could not reset the password. Request a new code.' });
+                res.json({ message: 'Password reset successfully. Sign in with your new password.' });
+              });
+            }
+          );
+        }
+      );
+    }
+  );
 });
 
 app.get('/api/auth/me', requireAuth, (req, res) => {

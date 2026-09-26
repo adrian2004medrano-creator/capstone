@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Plus, Pencil, Trash2, Eye, X } from "lucide-react";
 import api from "../services/api.js";
 
@@ -7,7 +7,9 @@ const INITIAL_FORM = {
   home_name: "",
   past_picture: "",
   present_picture: "",
-  name: "",
+  first_name: "",
+  middle_initial: "",
+  last_name: "",
   age: "",
   sex: "",
   civil_status: "",
@@ -32,8 +34,22 @@ const INITIAL_FORM = {
 const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api").replace(/\/api\/?$/, "");
 
 const imageUrl = (value) => value?.startsWith("http") ? value : `${API_ORIGIN}${value}`;
+const clientFullName = (client) => [client.first_name, client.middle_initial, client.last_name].filter(Boolean).join(" ") || client.name;
+const clientFormValues = (client, homeName) => ({
+  ...INITIAL_FORM,
+  ...client,
+  home_name: homeName,
+  middle_initial: client.middle_initial ?? "",
+  age: client.age ?? "",
+  age_when_found: client.age_when_found ?? "",
+  birthdate: client.birthdate ? String(client.birthdate).slice(0, 10) : "",
+  date_admitted: client.date_admitted ? String(client.date_admitted).slice(0, 10) : "",
+  date_time_when_found: client.date_time_when_found ? String(client.date_time_when_found).replace(" ", "T").slice(0, 16) : "",
+});
 
 export default function ClientHomePage({ homeName }) {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -59,6 +75,19 @@ export default function ClientHomePage({ homeName }) {
   useEffect(() => {
     fetchClients();
   }, [homeName]);
+
+  useEffect(() => {
+    const clientId = location.state?.editClientId;
+    if (!clientId || loading) return;
+
+    const client = clients.find((item) => String(item.id) === String(clientId));
+    if (!client) return;
+
+    setForm(clientFormValues(client, homeName));
+    setEditingId(client.id);
+    setShowForm(true);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [clients, homeName, loading, location.pathname, location.state, navigate]);
 
   useEffect(() => {
     if (!showForm) {
@@ -114,13 +143,7 @@ export default function ClientHomePage({ homeName }) {
   };
 
   const handleEdit = (client) => {
-    setForm({
-      ...INITIAL_FORM,
-      home_name: homeName,
-      ...client,
-      age: client.age ?? "",
-      age_when_found: client.age_when_found ?? "",
-    });
+    setForm(clientFormValues(client, homeName));
     setEditingId(client.id);
     setShowForm(true);
   };
@@ -192,7 +215,7 @@ export default function ClientHomePage({ homeName }) {
               <tbody className="divide-y divide-ink/5">
                 {clients.map((client) => (
                   <tr key={client.id} className="hover:bg-ink/[0.02]">
-                    <td className="px-3 py-3 font-medium text-ink900">{client.name}</td>
+                    <td className="px-3 py-3 font-medium text-ink900">{clientFullName(client)}</td>
                     <td className="px-3 py-3">{client.age ?? "-"}</td>
                     <td className="px-3 py-3">{client.sex ?? "-"}</td>
                     <td className="px-3 py-3">{client.barangay ?? "-"}</td>
@@ -250,8 +273,18 @@ export default function ClientHomePage({ homeName }) {
 
             <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-2">
               <label className="space-y-1">
-                <span className="text-sm font-medium text-ink900">Name</span>
-                <input name="name" value={form.name} onChange={handleChange} required className="w-full rounded-lg border border-ink/10 bg-surface px-3 py-2.5 outline-none focus:border-primary" />
+                <span className="text-sm font-medium text-ink900">First Name</span>
+                <input name="first_name" value={form.first_name} onChange={handleChange} required maxLength={100} className="w-full rounded-lg border border-ink/10 bg-surface px-3 py-2.5 outline-none focus:border-primary" />
+              </label>
+
+              <label className="space-y-1">
+                <span className="text-sm font-medium text-ink900">Middle Initial</span>
+                <input name="middle_initial" value={form.middle_initial} onChange={handleChange} maxLength={30} className="w-full rounded-lg border border-ink/10 bg-surface px-3 py-2.5 outline-none focus:border-primary" />
+              </label>
+
+              <label className="space-y-1">
+                <span className="text-sm font-medium text-ink900">Last Name</span>
+                <input name="last_name" value={form.last_name} onChange={handleChange} required maxLength={150} className="w-full rounded-lg border border-ink/10 bg-surface px-3 py-2.5 outline-none focus:border-primary" />
               </label>
 
               <label className="space-y-1">

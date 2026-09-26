@@ -127,6 +127,7 @@ const createUsersTable = () => {
     CREATE TABLE IF NOT EXISTS users (
       id INT AUTO_INCREMENT PRIMARY KEY,
       first_name VARCHAR(100) NOT NULL,
+      middle_initial VARCHAR(30) NULL,
       last_name VARCHAR(100) NOT NULL,
       age INT NOT NULL,
       email VARCHAR(150) NOT NULL UNIQUE,
@@ -147,7 +148,8 @@ const createUsersTable = () => {
 
     const seedBootstrapAdmin = () => {
       const bootstrapAdmin = [
-        'Agnes C.',
+        'Agnes',
+        'C.',
         'Aragon',
         30,
         'superadmin@boystown.org',
@@ -156,14 +158,47 @@ const createUsersTable = () => {
         'Officer-in-Charge'
       ];
       db.query(
-        `INSERT INTO users (first_name, last_name, age, email, password, role, position)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE first_name = ?, last_name = ?, role = ?, position = ?`,
-        [...bootstrapAdmin, bootstrapAdmin[0], bootstrapAdmin[1], bootstrapAdmin[5], bootstrapAdmin[6]],
+        `INSERT INTO users (first_name, middle_initial, last_name, age, email, password, role, position)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE first_name = ?, middle_initial = ?, last_name = ?, role = ?, position = ?`,
+        [...bootstrapAdmin, bootstrapAdmin[0], bootstrapAdmin[1], bootstrapAdmin[2], bootstrapAdmin[6], bootstrapAdmin[7]],
         (seedError) => {
           if (seedError) console.error('Failed to seed bootstrap superadmin:', seedError.message);
         }
       );
+    };
+
+    const ensureMiddleInitialColumn = () => {
+      db.query("SHOW COLUMNS FROM users LIKE 'middle_initial'", (columnError, columns) => {
+        if (columnError) {
+          console.error('Failed to inspect users table:', columnError.message);
+          process.exit(1);
+        }
+        if (columns.length) {
+          seedBootstrapAdmin();
+          return;
+        }
+        db.query('ALTER TABLE users ADD COLUMN middle_initial VARCHAR(30) NULL AFTER first_name', (migrationError) => {
+          if (migrationError) {
+            console.error('Failed to add users.middle_initial column:', migrationError.message);
+            process.exit(1);
+          }
+          console.log('Added the missing users.middle_initial column.');
+          db.query(
+            `UPDATE users
+             SET middle_initial = CONCAT(SUBSTRING_INDEX(SUBSTRING_INDEX(TRIM(first_name), ' ', -1), '.', 1), '.'),
+                 first_name = SUBSTRING_INDEX(TRIM(first_name), ' ', 1)
+             WHERE middle_initial IS NULL AND TRIM(first_name) REGEXP '^[^ ]+ [A-Za-z]\\.?$'`,
+            (backfillError) => {
+              if (backfillError) {
+                console.error('Failed to migrate existing user middle initials:', backfillError.message);
+                process.exit(1);
+              }
+              seedBootstrapAdmin();
+            }
+          );
+        });
+      });
     };
 
     const ensureProfilePictureColumn = () => {
@@ -173,7 +208,7 @@ const createUsersTable = () => {
           process.exit(1);
         }
         if (columns.length) {
-          seedBootstrapAdmin();
+          ensureMiddleInitialColumn();
           return;
         }
         db.query(
@@ -184,7 +219,7 @@ const createUsersTable = () => {
               process.exit(1);
             }
             console.log('Added the missing users.profile_picture column.');
-            seedBootstrapAdmin();
+            ensureMiddleInitialColumn();
           }
         );
       });
@@ -277,6 +312,9 @@ const createClientTable = () => {
       past_picture VARCHAR(255),
       present_picture VARCHAR(255),
       name VARCHAR(255) NOT NULL,
+      first_name VARCHAR(100) NOT NULL DEFAULT '',
+      middle_initial VARCHAR(30) NULL,
+      last_name VARCHAR(150) NOT NULL DEFAULT '',
       age INT,
       sex VARCHAR(50),
       civil_status VARCHAR(100),
@@ -307,15 +345,80 @@ const createClientTable = () => {
       process.exit(1);
     }
     console.log('Clients table is ready.');
+
+    const ensureClientNameColumns = () => {
+      const columnsToAdd = [
+        ['first_name', "VARCHAR(100) NOT NULL DEFAULT ''"],
+        ['middle_initial', 'VARCHAR(30) NULL'],
+        ['last_name', "VARCHAR(150) NOT NULL DEFAULT ''"]
+      ];
+      const ensureColumn = (index) => {
+        if (index === columnsToAdd.length) {
+          db.query("SELECT id, name FROM clients WHERE first_name = '' OR last_name = ''", (selectError, rows) => {
+            if (selectError) {
+              console.error('Failed to load client names for migration:', selectError.message);
+              process.exit(1);
+            }
+            const migrateName = (rowIndex) => {
+              if (rowIndex === rows.length) {
+                createClientDocumentsTable();
+                return;
+              }
+              const row = rows[rowIndex];
+              const parts = String(row.name || '').trim().split(/\s+/).filter(Boolean);
+              const firstName = parts.shift() || '';
+              let middleInitial = null;
+              if (parts.length > 1 && /^[A-Za-z]\.?$/.test(parts[0])) {
+                middleInitial = parts.shift();
+              }
+              const lastName = parts.join(' ');
+              db.query(
+                'UPDATE clients SET first_name = ?, middle_initial = ?, last_name = ? WHERE id = ?',
+                [firstName, middleInitial, lastName, row.id],
+                (updateError) => {
+                  if (updateError) {
+                    console.error('Failed to migrate a client name:', updateError.message);
+                    process.exit(1);
+                  }
+                  migrateName(rowIndex + 1);
+                }
+              );
+            };
+            migrateName(0);
+          });
+          return;
+        }
+
+        const [column, definition] = columnsToAdd[index];
+        db.query(`SHOW COLUMNS FROM clients LIKE '${column}'`, (columnError, rows) => {
+          if (columnError) {
+            console.error('Failed to inspect clients table:', columnError.message);
+            process.exit(1);
+          }
+          if (rows.length) {
+            ensureColumn(index + 1);
+            return;
+          }
+          db.query(`ALTER TABLE clients ADD COLUMN ${column} ${definition}`, (migrationError) => {
+            if (migrationError) {
+              console.error(`Failed to add clients.${column} column:`, migrationError.message);
+              process.exit(1);
+            }
+            ensureColumn(index + 1);
+          });
+        });
+      };
+      ensureColumn(0);
+    };
+
     db.query("SHOW COLUMNS FROM clients LIKE 'behavior_notes'", (columnError, columns) => {
       if (columnError) {
         console.error('Failed to inspect clients table:', columnError.message);
         process.exit(1);
       }
 
-      const createDocuments = () => createClientDocumentsTable();
       if (columns.length) {
-        createDocuments();
+        ensureClientNameColumns();
         return;
       }
 
@@ -325,7 +428,7 @@ const createClientTable = () => {
           process.exit(1);
         }
         console.log('Added the missing clients.behavior_notes column.');
-        createDocuments();
+        ensureClientNameColumns();
       });
     });
   });
@@ -501,7 +604,6 @@ app.post('/api/clients/:id/documents', requireAuth, requireRoles(caseManagementR
       if (clientError) {
         return res.status(500).json({ message: 'Could not verify client.', error: clientError.message });
       }
-      return res.status(404).json({ message: 'Client not found.' });
     }
 
     const documentRows = files.map((file) => {
@@ -526,6 +628,26 @@ app.post('/api/clients/:id/documents', requireAuth, requireRoles(caseManagementR
     );
   });
 });
+
+const splitClientName = (name) => {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  const firstName = parts.shift() || '';
+  const middleInitial = parts.length > 1 && /^[A-Za-z]\.?$/.test(parts[0]) ? parts.shift() : '';
+  return { firstName, middleInitial, lastName: parts.join(' ') };
+};
+
+const getClientNameParts = (data) => {
+  const legacy = splitClientName(data.name);
+  const firstName = String(data.first_name || legacy.firstName).trim();
+  const middleInitial = String(data.middle_initial || legacy.middleInitial).trim();
+  const lastName = String(data.last_name || legacy.lastName).trim();
+  return {
+    firstName,
+    middleInitial,
+    lastName,
+    fullName: [firstName, middleInitial, lastName].filter(Boolean).join(' ')
+  };
+};
 
 app.get('/api/clients/:id/documents/:documentId/download', requireAuth, requireRoles(caseManagementRoles), (req, res) => {
   db.query(
@@ -577,9 +699,9 @@ app.delete('/api/clients/:id/documents/:documentId', requireAuth, requireRoles(c
 
 app.post('/api/clients', requireAuth, requireRoles(caseManagementRoles), uploadClientImages, (req, res) => {
   const data = req.body;
+  const nameParts = getClientNameParts(data);
   const requiredFields = [
     'home_name',
-    'name',
     'age',
     'sex',
     'civil_status',
@@ -602,6 +724,9 @@ app.post('/api/clients', requireAuth, requireRoles(caseManagementRoles), uploadC
   ];
 
   const missing = requiredFields.filter((field) => data[field] === undefined || data[field] === null || data[field] === '');
+  if (!nameParts.firstName) missing.push('first_name');
+  if (!nameParts.lastName) missing.push('last_name');
+  if (nameParts.middleInitial.length > 30) missing.push('middle_initial (max 30 characters)');
   if (missing.length > 0) {
     return res.status(400).json({ message: 'Missing required client fields.', missing });
   }
@@ -612,6 +737,9 @@ app.post('/api/clients', requireAuth, requireRoles(caseManagementRoles), uploadC
       past_picture,
       present_picture,
       name,
+      first_name,
+      middle_initial,
+      last_name,
       age,
       sex,
       civil_status,
@@ -632,14 +760,17 @@ app.post('/api/clients', requireAuth, requireRoles(caseManagementRoles), uploadC
       place_where_found,
       present_whereabouts,
       behavior_notes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
   const values = [
     data.home_name,
     req.files?.past_picture?.[0] ? `/uploads/${req.files.past_picture[0].filename}` : null,
     req.files?.present_picture?.[0] ? `/uploads/${req.files.present_picture[0].filename}` : null,
-    data.name,
+    nameParts.fullName,
+    nameParts.firstName,
+    nameParts.middleInitial || null,
+    nameParts.lastName,
     data.age,
     data.sex,
     data.civil_status,
@@ -677,6 +808,10 @@ app.post('/api/clients', requireAuth, requireRoles(caseManagementRoles), uploadC
 app.put('/api/clients/:id', requireAuth, requireRoles(caseManagementRoles), uploadClientImages, (req, res) => {
   const { id } = req.params;
   const data = req.body;
+  const nameParts = getClientNameParts(data);
+  if (!nameParts.firstName || !nameParts.lastName || nameParts.middleInitial.length > 30) {
+    return res.status(400).json({ message: 'First name and last name are required; middle initial must be 30 characters or fewer.' });
+  }
 
   const sql = `
     UPDATE clients SET
@@ -684,6 +819,9 @@ app.put('/api/clients/:id', requireAuth, requireRoles(caseManagementRoles), uplo
       past_picture = COALESCE(?, past_picture),
       present_picture = COALESCE(?, present_picture),
       name = ?,
+      first_name = ?,
+      middle_initial = ?,
+      last_name = ?,
       age = ?,
       sex = ?,
       civil_status = ?,
@@ -711,7 +849,10 @@ app.put('/api/clients/:id', requireAuth, requireRoles(caseManagementRoles), uplo
     data.home_name,
     req.files?.past_picture?.[0] ? `/uploads/${req.files.past_picture[0].filename}` : null,
     req.files?.present_picture?.[0] ? `/uploads/${req.files.present_picture[0].filename}` : null,
-    data.name,
+    nameParts.fullName,
+    nameParts.firstName,
+    nameParts.middleInitial || null,
+    nameParts.lastName,
     data.age,
     data.sex,
     data.civil_status,
@@ -772,7 +913,7 @@ app.delete('/api/clients/:id', requireAuth, requireRoles(caseManagementRoles), (
 });
 
 app.post('/api/auth/register', requireAuth, requireSuperadmin, (req, res) => {
-  const { first_name, last_name, age, email, password, role } = req.body;
+  const { first_name, middle_initial, last_name, age, email, password, role } = req.body;
 
   if (!first_name || !last_name || !age || !email || !password || !role) {
     return res.status(400).json({ message: 'All fields are required: first_name, last_name, age, email, password, role.' });
@@ -790,14 +931,17 @@ app.post('/api/auth/register', requireAuth, requireSuperadmin, (req, res) => {
   if (!Number.isInteger(parsedAge) || parsedAge <= 0) {
     return res.status(400).json({ message: 'Age must be a valid number.' });
   }
+  if (String(middle_initial || '').trim().length > 30) {
+    return res.status(400).json({ message: 'Middle initial must be 30 characters or fewer.' });
+  }
 
   const cleanEmail = String(email).trim().toLowerCase();
   const cleanPassword = String(password);
   const hashedPassword = bcrypt.hashSync(cleanPassword, 10);
 
   db.query(
-    'INSERT INTO users (first_name, last_name, age, email, password, role) VALUES (?, ?, ?, ?, ?, ?)',
-    [String(first_name).trim(), String(last_name).trim(), parsedAge, cleanEmail, hashedPassword, normalizedRole],
+    'INSERT INTO users (first_name, middle_initial, last_name, age, email, password, role) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [String(first_name).trim(), String(middle_initial || '').trim() || null, String(last_name).trim(), parsedAge, cleanEmail, hashedPassword, normalizedRole],
     (err, result) => {
       if (err) {
         if (err.code === 'ER_DUP_ENTRY') {
@@ -811,6 +955,7 @@ app.post('/api/auth/register', requireAuth, requireSuperadmin, (req, res) => {
         user: {
           id: result.insertId,
           first_name: String(first_name).trim(),
+          middle_initial: String(middle_initial || '').trim() || null,
           last_name: String(last_name).trim(),
           age: parsedAge,
           email: cleanEmail,
@@ -861,7 +1006,7 @@ app.post('/api/auth/login', (req, res) => {
 
 app.get('/api/auth/me', requireAuth, (req, res) => {
   db.query(
-    'SELECT id, first_name, last_name, age, email, role, position, profile_picture FROM users WHERE id = ?',
+    'SELECT id, first_name, middle_initial, last_name, age, email, role, position, profile_picture FROM users WHERE id = ?',
     [req.auth.id],
     (err, rows) => {
       if (err) return res.status(500).json({ message: 'Failed to load profile.', error: err.message });
@@ -873,6 +1018,7 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 
 app.put('/api/auth/me', requireAuth, imageUpload.single('profile_picture'), (req, res) => {
   const firstName = String(req.body.first_name || '').trim();
+  const middleInitial = String(req.body.middle_initial || '').trim();
   const lastName = String(req.body.last_name || '').trim();
   const email = String(req.body.email || '').trim().toLowerCase();
   const age = Number(req.body.age);
@@ -884,6 +1030,10 @@ app.put('/api/auth/me', requireAuth, imageUpload.single('profile_picture'), (req
     discardUploadedPhoto();
     return res.status(400).json({ message: 'First and last name are required and must be 100 characters or fewer.' });
   }
+  if (middleInitial.length > 30) {
+    discardUploadedPhoto();
+    return res.status(400).json({ message: 'Middle initial must be 30 characters or fewer.' });
+  }
   if (!Number.isInteger(age) || age < 18 || age > 120) {
     discardUploadedPhoto();
     return res.status(400).json({ message: 'Age must be a whole number between 18 and 120.' });
@@ -893,13 +1043,13 @@ app.put('/api/auth/me', requireAuth, imageUpload.single('profile_picture'), (req
     return res.status(400).json({ message: 'Enter a valid email address.' });
   }
 
-  const fields = [firstName, lastName, age, email];
+  const fields = [firstName, middleInitial || null, lastName, age, email];
   const photoSql = req.file ? ', profile_picture = ?' : '';
   if (req.file) fields.push(`/uploads/${req.file.filename}`);
   fields.push(req.auth.id);
 
   db.query(
-    `UPDATE users SET first_name = ?, last_name = ?, age = ?, email = ?${photoSql} WHERE id = ?`,
+    `UPDATE users SET first_name = ?, middle_initial = ?, last_name = ?, age = ?, email = ?${photoSql} WHERE id = ?`,
     fields,
     (err, result) => {
       if (err) {
@@ -913,7 +1063,7 @@ app.put('/api/auth/me', requireAuth, imageUpload.single('profile_picture'), (req
       if (!result.affectedRows) return res.status(404).json({ message: 'User account not found.' });
 
       db.query(
-        'SELECT id, first_name, last_name, age, email, role, position, profile_picture FROM users WHERE id = ?',
+        'SELECT id, first_name, middle_initial, last_name, age, email, role, position, profile_picture FROM users WHERE id = ?',
         [req.auth.id],
         (profileError, rows) => {
           if (profileError) return res.status(500).json({ message: 'Profile updated, but could not reload it.' });
@@ -954,7 +1104,7 @@ app.put('/api/auth/password', requireAuth, (req, res) => {
 });
 
 app.get('/api/users', requireAuth, requireSuperadmin, (req, res) => {
-  db.query('SELECT id, first_name, last_name, age, email, role, created_at FROM users', (err, result) => {
+  db.query('SELECT id, first_name, middle_initial, last_name, age, email, role, created_at FROM users', (err, result) => {
     if (err) return res.status(500).json({ message: 'Error fetching users', error: err.message });
     res.json(result);
   });

@@ -173,7 +173,7 @@ export default function Navbar({ title, subtitle, onToggleSidebar }) {
             </span>
           )}
           <div className="hidden lg:block leading-tight">
-            <p className="max-w-40 truncate text-sm font-semibold text-ink900">{user ? `${user.first_name} ${user.last_name}` : "Staff Account"}</p>
+            <p className="max-w-40 truncate text-sm font-semibold text-ink900">{user ? [user.first_name, user.middle_initial, user.last_name].filter(Boolean).join(" ") : "Staff Account"}</p>
             <p className="text-xs capitalize text-muted">{roleLabel}</p>
           </div>
         </button>

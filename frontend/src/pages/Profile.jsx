@@ -10,7 +10,7 @@ function getRoleLabel(profile) {
 
 export default function Profile() {
   const [profile, setProfile] = useState(null);
-  const [form, setForm] = useState({ first_name: "", last_name: "", email: "", age: "" });
+  const [form, setForm] = useState({ first_name: "", middle_initial: "", last_name: "", email: "", age: "" });
   const [photo, setPhoto] = useState(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [loading, setLoading] = useState(true);
@@ -30,6 +30,7 @@ export default function Profile() {
         setProfile(data);
         setForm({
           first_name: data.first_name || "",
+          middle_initial: data.middle_initial || "",
           last_name: data.last_name || "",
           email: data.email || "",
           age: data.age ?? "",
@@ -91,7 +92,7 @@ export default function Profile() {
     try {
       const { data } = await api.put("/auth/me", payload);
       setProfile(data);
-      setForm({ first_name: data.first_name, last_name: data.last_name, email: data.email, age: data.age });
+      setForm({ first_name: data.first_name, middle_initial: data.middle_initial || "", last_name: data.last_name, email: data.email, age: data.age });
       setPhoto(null);
       setPreviewUrl("");
       localStorage.setItem("kalakbay_user", JSON.stringify(data));
@@ -175,6 +176,10 @@ export default function Profile() {
               <label className="block text-xs font-semibold text-ink900">
                 First name
                 <input name="first_name" value={form.first_name} onChange={handleChange} required maxLength={100} autoComplete="given-name" className={`${inputClass} mt-1.5 font-normal`} />
+              </label>
+              <label className="block text-xs font-semibold text-ink900">
+                Middle initial
+                <input name="middle_initial" value={form.middle_initial} onChange={handleChange} maxLength={30} autoComplete="additional-name" className={`${inputClass} mt-1.5 font-normal`} />
               </label>
               <label className="block text-xs font-semibold text-ink900">
                 Last name

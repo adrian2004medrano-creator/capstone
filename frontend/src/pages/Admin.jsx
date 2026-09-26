@@ -4,6 +4,7 @@ import api from "../services/api.js";
 
 const INITIAL_FORM = {
   first_name: "",
+  middle_initial: "",
   last_name: "",
   age: "",
   email: "",
@@ -72,7 +73,7 @@ export default function Admin() {
   };
 
   const handleDelete = async (user) => {
-    const fullName = `${user.first_name} ${user.last_name}`;
+    const fullName = [user.first_name, user.middle_initial, user.last_name].filter(Boolean).join(" ");
     if (!window.confirm(`Permanently delete ${fullName}'s account? They will no longer be able to sign in.`)) return;
 
     setDeletingId(user.id);
@@ -107,6 +108,10 @@ export default function Admin() {
           <label className="space-y-1">
             <span className="text-sm font-medium text-ink900">First Name</span>
             <input name="first_name" value={form.first_name} onChange={handleChange} required maxLength={100} className={inputClass} />
+          </label>
+          <label className="space-y-1">
+            <span className="text-sm font-medium text-ink900">Middle Initial</span>
+            <input name="middle_initial" value={form.middle_initial} onChange={handleChange} maxLength={30} className={inputClass} />
           </label>
           <label className="space-y-1">
             <span className="text-sm font-medium text-ink900">Last Name</span>
@@ -168,7 +173,7 @@ export default function Admin() {
               <tbody className="divide-y divide-ink/5">
                 {users.map((user) => (
                   <tr key={user.id}>
-                    <td className="px-3 py-3 font-medium text-ink900">{user.first_name} {user.last_name}</td>
+                    <td className="px-3 py-3 font-medium text-ink900">{[user.first_name, user.middle_initial, user.last_name].filter(Boolean).join(" ")}</td>
                     <td className="px-3 py-3">{user.email}</td>
                     <td className="px-3 py-3">{user.age}</td>
                     <td className="px-3 py-3">{ROLES.find(([value]) => value === user.role)?.[1] || user.role}</td>
@@ -181,7 +186,7 @@ export default function Admin() {
                           type="button"
                           onClick={() => handleDelete(user)}
                           disabled={deletingId === user.id}
-                          aria-label={`Delete ${user.first_name} ${user.last_name}`}
+                          aria-label={`Delete ${[user.first_name, user.middle_initial, user.last_name].filter(Boolean).join(" ")}`}
                           title="Delete account"
                           className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted transition-colors hover:bg-risk-light hover:text-risk disabled:opacity-50"
                         >

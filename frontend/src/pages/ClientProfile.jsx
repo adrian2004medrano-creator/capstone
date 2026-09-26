@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, AlertTriangle, X, FileText, Upload, Download, Trash2 } from "lucide-react";
+import { useParams, Link, useNavigate } from "react-router-dom";
+import { ArrowLeft, X, FileText, Upload, Download, Trash2, Pencil } from "lucide-react";
 import api from "../services/api.js";
 
 const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api").replace(/\/api\/?$/, "");
@@ -13,6 +13,7 @@ const formatFileSize = (bytes) => {
 
 export default function ClientProfile() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [client, setClient] = useState(null);
   const [loading, setLoading] = useState(true);
   const [fullImage, setFullImage] = useState(null);
@@ -130,8 +131,11 @@ export default function ClientProfile() {
     );
   }
 
+  const clientName = [client.first_name, client.middle_initial, client.last_name].filter(Boolean).join(" ") || client.name;
   const profileFields = [
-    ["Name", client.name],
+    ["First Name", client.first_name],
+    ["Middle Initial", client.middle_initial],
+    ["Last Name", client.last_name],
     ["Home", client.home_name],
     ["Age", client.age],
     ["Sex", client.sex],
@@ -170,23 +174,28 @@ export default function ClientProfile() {
             {client.present_picture ? (
               <img
                 src={imageUrl(client.present_picture)}
-                alt={`${client.name} profile`}
+                alt={`${clientName} profile`}
                 className="h-16 w-16 shrink-0 rounded-full object-cover"
               />
             ) : (
               <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-primary-light text-lg font-bold text-primary-dark">
-                {client.name?.split(" ").map((word) => word[0]).join(" ").slice(0, 2) || "C"}
+                {clientName?.split(" ").map((word) => word[0]).join(" ").slice(0, 2) || "C"}
               </div>
             )}
             <div>
-              <h2 className="font-display text-2xl font-bold text-ink900">{client.name}</h2>
+              <h2 className="font-display text-2xl font-bold text-ink900">{clientName}</h2>
               <p className="text-sm text-muted">Client ID: {client.id} · {client.home_name}</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 rounded-xl bg-risk-light px-3 py-2 text-risk">
-            <AlertTriangle size={16} />
-            <span className="text-sm font-semibold">Needs follow-up review</span>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => navigate(clientHomeRoute(client.home_name), { state: { editClientId: client.id } })}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
+            >
+              <Pencil size={16} /> Edit client
+            </button>
           </div>
         </div>
       </div>
@@ -196,7 +205,7 @@ export default function ClientProfile() {
           {client.past_picture && (
             <figure>
               <button type="button" onClick={() => setFullImage({ src: imageUrl(client.past_picture), label: "Past Picture" })} aria-label="View past picture full size" className="block w-full cursor-zoom-in">
-                <img src={imageUrl(client.past_picture)} alt={`${client.name} past`} className="h-64 w-full rounded-xl2 object-cover" />
+                <img src={imageUrl(client.past_picture)} alt={`${clientName} past`} className="h-64 w-full rounded-xl2 object-cover" />
               </button>
               <figcaption className="mt-2 text-sm text-muted">Past Picture</figcaption>
             </figure>
@@ -204,7 +213,7 @@ export default function ClientProfile() {
           {client.present_picture && (
             <figure>
               <button type="button" onClick={() => setFullImage({ src: imageUrl(client.present_picture), label: "Present Picture" })} aria-label="View present picture full size" className="block w-full cursor-zoom-in">
-                <img src={imageUrl(client.present_picture)} alt={`${client.name} present`} className="h-64 w-full rounded-xl2 object-cover" />
+                <img src={imageUrl(client.present_picture)} alt={`${clientName} present`} className="h-64 w-full rounded-xl2 object-cover" />
               </button>
               <figcaption className="mt-2 text-sm text-muted">Present Picture</figcaption>
             </figure>
@@ -217,7 +226,7 @@ export default function ClientProfile() {
           <FileText size={20} className="text-primary" />
           <div>
             <h3 className="font-display text-lg font-bold text-ink900">Client Documents</h3>
-            <p className="text-sm text-muted">Files saved for {client.name}</p>
+            <p className="text-sm text-muted">Files saved for {clientName}</p>
           </div>
         </div>
 
@@ -313,9 +322,20 @@ export default function ClientProfile() {
           >
             <X size={22} />
           </button>
-          <img src={fullImage.src} alt={`${client.name} ${fullImage.label.toLowerCase()}`} className="max-h-[90vh] max-w-[95vw] object-contain" />
+          <img src={fullImage.src} alt={`${clientName} ${fullImage.label.toLowerCase()}`} className="max-h-[90vh] max-w-[95vw] object-contain" />
         </div>
       )}
     </div>
   );
+}
+
+function clientHomeRoute(homeName) {
+  const routes = {
+    "Girls Home": "/girls-home",
+    "Boys Home": "/boys-home",
+    "Kids Home": "/kids-home",
+    "Home for the Aged": "/aged-home",
+    Kamada: "/kamada",
+  };
+  return routes[homeName] || "/dashboard";
 }

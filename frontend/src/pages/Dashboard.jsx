@@ -4,6 +4,9 @@ import { Building2, Users, UserRoundCog, BriefcaseBusiness, BarChart3, Clipboard
 import StatCard from "../components/StatCard.jsx";
 import api from "../services/api.js";
 
+const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api").replace(/\/api\/?$/, "");
+const imageUrl = (value) => value?.startsWith("http") ? value : `${API_ORIGIN}${value}`;
+
 const ROLE_LABELS = {
   superadmin: "Officer-in-Charge",
   admin: "Admin",
@@ -55,8 +58,8 @@ export default function Dashboard() {
       ]
     : isPsychometrician
       ? [
-          { label: "Clients in behavior review", value: summary.totals.clients, tone: "primary", icon: Users },
-          { label: "Behavior notes recorded", value: summary.totals.behaviorNotes, tone: "amber", icon: ClipboardList },
+          { label: "Clients assigned", value: summary.totals.clients, tone: "primary", icon: Users },
+          { label: "Homes represented", value: summary.totals.homes, tone: "amber", icon: Building2 },
         ]
       : [
           { label: "Client records", value: summary.totals.clients, tone: "primary", icon: Users },
@@ -76,7 +79,7 @@ export default function Dashboard() {
           {isSuperadmin
             ? "Live client and staff account totals from the database."
             : isPsychometrician
-              ? "This role can see client names, ages, and recorded behavior notes only. Other personal and case details are restricted."
+              ? "This role can see client names, ages, homes, profile pictures, and behavior notes only. Other personal and case details are restricted."
               : "Live client totals grouped by home. Use the home pages to manage individual case records."}
         </p>
       </section>
@@ -113,26 +116,38 @@ export default function Dashboard() {
               {isPsychometrician ? <ClipboardList size={19} className="text-primary" /> : <BarChart3 size={19} className="text-primary" />}
               <div>
                 <h3 className="font-display text-lg font-bold text-ink900">
-                  {isPsychometrician ? "Client behavior notes" : "Client records by home"}
+                  {isPsychometrician ? "Clients by home" : "Client records by home"}
                 </h3>
                 <p className="text-sm text-muted">
-                  {isPsychometrician ? "Only name, age, and behavior notes are included." : "Counts are read directly from current database records."}
+                  {isPsychometrician ? "Client name, age, home, and behavior notes." : "Counts are read directly from current database records."}
                 </p>
               </div>
             </div>
             {isPsychometrician ? (
-              summary.behaviorClients.length === 0 ? (
+              summary.psychometricianClients.length === 0 ? (
                 <p className="py-5 text-center text-sm text-muted">No client records have been added yet.</p>
               ) : (
                 <div className="divide-y divide-ink/5">
-                  {summary.behaviorClients.map((client, index) => (
+                  {summary.psychometricianClients.map((client, index) => (
                     <article key={`${client.name}-${client.age}-${index}`} className="py-4">
-                      <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <h4 className="font-semibold text-ink900">{client.name}</h4>
-                        <span className="text-sm text-muted">Age {client.age ?? "not recorded"}</span>
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
+                          {client.present_picture ? (
+                            <img src={imageUrl(client.present_picture)} alt="" className="h-10 w-10 shrink-0 rounded-full object-cover" />
+                          ) : (
+                            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-light text-xs font-semibold text-primary-dark">
+                              {client.name?.split(/\s+/).map((part) => part[0]).slice(0, 2).join("") || "C"}
+                            </span>
+                          )}
+                          <h4 className="truncate font-semibold text-ink900">{client.name}</h4>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-3 text-sm text-muted">
+                          <span>Age {client.age ?? "not recorded"}</span>
+                          <span className="rounded-md bg-primary-light px-2.5 py-1 text-xs font-semibold text-primary-dark">{client.home_name}</span>
+                        </div>
                       </div>
-                      <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-ink/75">
-                        {client.behavior_notes?.trim() || "No behavior notes recorded yet."}
+                      <p className="ml-[52px] mt-2 whitespace-pre-wrap text-sm leading-relaxed text-ink/75">
+                        {client.behavior_notes?.trim() || "No behavior notes recorded."}
                       </p>
                     </article>
                   ))}

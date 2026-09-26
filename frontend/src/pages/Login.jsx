@@ -67,7 +67,7 @@ export default function Login() {
                   required
                   value={form.email}
                   onChange={handleChange}
-                  placeholder="you@manilaboystown.org"
+                  placeholder="Enter Your Email"
                   className="bg-transparent text-sm outline-none w-full placeholder:text-muted"
                 />
               </div>
@@ -83,7 +83,7 @@ export default function Login() {
                   required
                   value={form.password}
                   onChange={handleChange}
-                  placeholder="••••••••"
+                  placeholder="Enter Your Password"
                   className="bg-transparent text-sm outline-none w-full placeholder:text-muted"
                 />
               </div>

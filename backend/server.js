@@ -451,23 +451,25 @@ app.get('/api/health', (req, res) => {
 
 app.get('/api/dashboard', requireAuth, requireRoles(['superadmin', 'admin', 'social_worker', 'psychometrician', 'user']), (req, res) => {
   if (['psychometrician', 'user'].includes(req.auth.role)) {
-    db.query('SELECT name, age, behavior_notes FROM clients ORDER BY name', (clientError, rows) => {
+    db.query('SELECT name, age, home_name, present_picture, behavior_notes FROM clients ORDER BY name', (clientError, rows) => {
       if (clientError) {
         return res.status(500).json({ message: 'Could not load behavior overview.', error: clientError.message });
       }
 
-      const behaviorClients = rows.map((row) => ({
+      const psychometricianClients = rows.map((row) => ({
         name: row.name,
         age: row.age === null ? null : Number(row.age),
+        home_name: row.home_name,
+        present_picture: row.present_picture,
         behavior_notes: row.behavior_notes
       }));
       return res.json({
         role: req.auth.role,
         totals: {
-          clients: behaviorClients.length,
-          behaviorNotes: behaviorClients.filter((client) => Boolean(client.behavior_notes?.trim())).length
+          clients: psychometricianClients.length,
+          homes: new Set(psychometricianClients.map((client) => client.home_name)).size
         },
-        behaviorClients
+        psychometricianClients
       });
     });
     return;

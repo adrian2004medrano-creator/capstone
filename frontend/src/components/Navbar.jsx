@@ -1,5 +1,5 @@
-import { Bell, Search, LogOut, Menu, Compass } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Bell, Search, LogOut, Menu, X, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../services/api.js";
 
@@ -11,6 +11,27 @@ function readCachedProfile() {
   }
 }
 
+function playNotificationSound(audioContext) {
+  if (!audioContext || audioContext.state !== "running") return;
+
+  try {
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    const now = audioContext.currentTime;
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(880, now);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.12, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24);
+    oscillator.connect(gain);
+    gain.connect(audioContext.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.25);
+  } catch {
+    // Ignore audio errors so notification updates still work.
+  }
+}
+
 export default function Navbar({ onToggleSidebar }) {
   const navigate = useNavigate();
   const [clientName, setClientName] = useState("");
@@ -19,6 +40,13 @@ export default function Navbar({ onToggleSidebar }) {
   const [searching, setSearching] = useState(false);
   const [user, setUser] = useState(readCachedProfile);
   const [currentTime, setCurrentTime] = useState(() => new Date());
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
+  const [notificationsError, setNotificationsError] = useState("");
+  const audioContextRef = useRef(null);
+  const knownNotificationIdsRef = useRef(null);
   const searchRole = localStorage.getItem("kalakbay_role") || "user";
   const isPsychometrician = searchRole === "psychometrician" || searchRole === "user";
   const role = user?.role || localStorage.getItem("kalakbay_role") || "user";
@@ -27,6 +55,40 @@ export default function Navbar({ onToggleSidebar }) {
   const profileImage = user?.profile_picture
     ? new URL(user.profile_picture, api.defaults.baseURL).href
     : "";
+
+  const applyNotificationData = (data) => {
+    const latestNotifications = data.notifications || [];
+    const knownIds = knownNotificationIdsRef.current;
+    const hasNewUnread = knownIds && latestNotifications.some((notification) => (
+      !knownIds.has(notification.id) && !notification.read_at
+    ));
+    if (hasNewUnread) playNotificationSound(audioContextRef.current);
+    knownNotificationIdsRef.current = new Set(latestNotifications.map((notification) => notification.id));
+    setNotifications(latestNotifications);
+    setUnreadCount(Number(data.unread_count) || 0);
+  };
+
+  useEffect(() => {
+    const unlockAudio = () => {
+      if (!audioContextRef.current) {
+        const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextConstructor) return;
+        audioContextRef.current = new AudioContextConstructor();
+      }
+      if (audioContextRef.current.state === "suspended") {
+        audioContextRef.current.resume().catch(() => {});
+      }
+    };
+
+    window.addEventListener("pointerdown", unlockAudio, { once: true });
+    window.addEventListener("keydown", unlockAudio, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlockAudio);
+      window.removeEventListener("keydown", unlockAudio);
+      audioContextRef.current?.close().catch(() => {});
+      audioContextRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     const timerId = window.setInterval(() => setCurrentTime(new Date()), 1000);
@@ -48,6 +110,27 @@ export default function Navbar({ onToggleSidebar }) {
     return () => {
       cancelled = true;
       window.removeEventListener("profile-updated", syncProfile);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refreshNotifications = async () => {
+      try {
+        const { data } = await api.get("/notifications");
+        if (!cancelled) {
+          applyNotificationData(data);
+        }
+      } catch {
+        // Notifications are optional until the backend is available.
+      }
+    };
+
+    refreshNotifications();
+    const intervalId = window.setInterval(refreshNotifications, 30000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
     };
   }, []);
 
@@ -86,6 +169,41 @@ export default function Navbar({ onToggleSidebar }) {
     localStorage.removeItem("kalakbay_token");
     localStorage.removeItem("kalakbay_user");
     navigate("/login", { replace: true });
+  };
+
+  const handleNotificationsToggle = async () => {
+    const shouldOpen = !notificationsOpen;
+    setNotificationsOpen(shouldOpen);
+    if (!shouldOpen) return;
+
+    setNotificationsLoading(true);
+    setNotificationsError("");
+    try {
+      const { data } = await api.get("/notifications");
+      applyNotificationData(data);
+      const latestNotifications = data.notifications || [];
+      if (Number(data.unread_count) > 0) {
+        await api.put("/notifications/read");
+        const readAt = new Date().toISOString();
+        setNotifications(latestNotifications.map((notification) => ({ ...notification, read_at: notification.read_at || readAt })));
+        setUnreadCount(0);
+      }
+    } catch (err) {
+      setNotificationsError(err?.response?.data?.message || "Could not load notifications.");
+    } finally {
+      setNotificationsLoading(false);
+    }
+  };
+
+  const handleNotificationDelete = async (notification) => {
+    setNotificationsError("");
+    try {
+      await api.delete(`/notifications/${notification.id}`);
+      setNotifications((current) => current.filter((item) => item.id !== notification.id));
+      if (!notification.read_at) setUnreadCount((current) => Math.max(0, current - 1));
+    } catch (err) {
+      setNotificationsError(err?.response?.data?.message || "Could not delete notification.");
+    }
   };
 
   return (
@@ -159,13 +277,67 @@ export default function Navbar({ onToggleSidebar }) {
           )}
         </div>
 
-        <button
-          type="button"
-          className="relative hidden h-10 w-10 items-center justify-center rounded-md border border-[#e3e6e9] bg-white transition-colors hover:bg-[#f7f8f9] lg:flex"
-        >
-          <Bell size={17} className="text-ink900" />
-          <span className="absolute top-2 right-2.5 w-2 h-2 rounded-full bg-risk" />
-        </button>
+        <div className="relative">
+          <button
+            type="button"
+            onClick={handleNotificationsToggle}
+            aria-label={unreadCount ? `Notifications, ${unreadCount} unread` : "Notifications"}
+            aria-expanded={notificationsOpen}
+            aria-controls="notifications-panel"
+            className="relative flex h-9 w-9 items-center justify-center rounded-md border border-[#e3e6e9] bg-white transition-colors hover:bg-[#f7f8f9] sm:h-10 sm:w-10"
+          >
+            <Bell size={17} className="text-ink900" />
+            {unreadCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-risk px-1 text-[10px] font-bold leading-none text-white">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
+          </button>
+
+          {notificationsOpen && (
+            <section id="notifications-panel" aria-label="Notifications" className="absolute right-0 top-full z-50 mt-2 w-80 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border border-[#e3e6e9] bg-white shadow-card sm:w-96">
+              <div className="flex items-center justify-between border-b border-[#e3e6e9] px-4 py-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-[#292e33]">Notifications</h2>
+                  <p className="mt-0.5 text-xs text-[#78818a]">Recent system activity</p>
+                </div>
+                <button type="button" onClick={() => setNotificationsOpen(false)} aria-label="Close notifications" className="flex h-8 w-8 items-center justify-center rounded-md text-[#78818a] hover:bg-[#f3f4f5] hover:text-[#30353a]">
+                  <X size={16} />
+                </button>
+              </div>
+
+              {notificationsError && <p role="alert" className="m-3 rounded-md bg-risk-light px-3 py-2 text-xs text-risk">{notificationsError}</p>}
+              <div className="max-h-[min(65vh,26rem)] overflow-y-auto">
+                {notificationsLoading ? (
+                  <p className="px-4 py-8 text-center text-sm text-[#78818a]">Loading notifications...</p>
+                ) : notifications.length === 0 ? (
+                  <p className="px-4 py-8 text-center text-sm text-[#78818a]">No notifications yet.</p>
+                ) : (
+                  <ul className="divide-y divide-[#eef0f2]">
+                    {notifications.map((notification) => (
+                      <li key={notification.id} className={`flex items-start gap-3 px-4 py-3 ${notification.read_at ? "bg-white" : "bg-[#f7f9fa]"}`}>
+                        <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${notification.read_at ? "bg-transparent" : "bg-risk"}`} />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm leading-snug text-[#343a40]">{notification.message}</p>
+                          <p className="mt-1 text-xs text-[#88919a]">{new Date(notification.created_at).toLocaleString()}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleNotificationDelete(notification)}
+                          aria-label={`Delete notification: ${notification.message}`}
+                          title="Delete notification"
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#88919a] transition-colors hover:bg-risk-light hover:text-risk"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </section>
+          )}
+        </div>
 
         <button
           type="button"

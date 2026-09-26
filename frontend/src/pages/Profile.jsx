@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Camera, Check, KeyRound, Save, UserRound } from "lucide-react";
+import { Camera, Check, KeyRound, Save, Trash2, UserRound } from "lucide-react";
 import api from "../services/api.js";
 
 const inputClass = "w-full rounded-lg border border-ink/15 bg-white px-3.5 py-2.5 text-sm text-ink900 outline-none transition-colors placeholder:text-muted/70 focus:border-primary";
@@ -15,6 +15,7 @@ export default function Profile() {
   const [previewUrl, setPreviewUrl] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [removingPhoto, setRemovingPhoto] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [passwordForm, setPasswordForm] = useState({ current_password: "", new_password: "", confirm_password: "" });
@@ -105,6 +106,27 @@ export default function Profile() {
     }
   };
 
+  const handleRemovePhoto = async () => {
+    if (!profile?.profile_picture || !window.confirm("Remove your profile photo?")) return;
+
+    setRemovingPhoto(true);
+    setError("");
+    setSuccess("");
+    try {
+      const { data } = await api.delete("/auth/me/profile-picture");
+      setProfile(data);
+      setPhoto(null);
+      setPreviewUrl("");
+      localStorage.setItem("kalakbay_user", JSON.stringify(data));
+      window.dispatchEvent(new Event("profile-updated"));
+      setSuccess("Profile photo removed.");
+    } catch (requestError) {
+      setError(requestError?.response?.data?.message || "Could not remove your profile photo.");
+    } finally {
+      setRemovingPhoto(false);
+    }
+  };
+
   const handlePasswordChange = (event) => {
     setPasswordForm((current) => ({ ...current, [event.target.name]: event.target.value }));
     setPasswordError("");
@@ -163,9 +185,16 @@ export default function Profile() {
                   {imageUrl ? <img src={imageUrl} alt="Profile" className="h-full w-full object-cover" /> : <UserRound size={34} />}
                 </div>
                 <div className="space-y-2">
-                  <label htmlFor="profile-photo" className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm font-medium text-ink900 transition-colors hover:bg-surface">
-                    <Camera size={16} /> Change photo
-                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    <label htmlFor="profile-photo" className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm font-medium text-ink900 transition-colors hover:bg-surface">
+                      <Camera size={16} /> Change photo
+                    </label>
+                    {profile.profile_picture && (
+                      <button type="button" onClick={handleRemovePhoto} disabled={removingPhoto || saving} className="inline-flex items-center gap-2 rounded-lg border border-risk/20 bg-white px-3 py-2 text-sm font-medium text-risk transition-colors hover:bg-risk-light disabled:cursor-not-allowed disabled:opacity-50">
+                        <Trash2 size={15} /> {removingPhoto ? "Removing..." : "Remove photo"}
+                      </button>
+                    )}
+                  </div>
                   <input id="profile-photo" type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handlePhotoChange} className="sr-only" />
                   <p className="text-xs text-muted">JPG, PNG, WebP, or GIF · up to 5 MB</p>
                 </div>

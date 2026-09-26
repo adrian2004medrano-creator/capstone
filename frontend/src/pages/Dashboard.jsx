@@ -115,7 +115,7 @@ export default function Dashboard() {
               {isPsychometrician ? <ClipboardList size={19} className="text-primary" /> : <BarChart3 size={19} className="text-primary" />}
               <div>
                 <h3 className="font-display text-lg font-bold text-ink900">
-                  {isPsychometrician ? "Clients by home" : "Client records by home"}
+                  {isPsychometrician ? "Clients by home" : "Client Records of Home Cares"}
                 </h3>
                 <p className="text-sm text-muted">
                   {isPsychometrician ? "Client name, age, home, and behavior notes." : "Counts are read directly from current database records."}

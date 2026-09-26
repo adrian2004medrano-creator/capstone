@@ -124,6 +124,24 @@ const uploadClientDocuments = (req, res, next) => {
     next();
   });
 };
+const reportUpload = multer({
+  storage: documentStorage,
+  limits: { fileSize: 20 * 1024 * 1024, files: 10 }
+}).array('documents', 10);
+const uploadHomeReportFiles = (req, res, next) => {
+  reportUpload(req, res, (err) => {
+    if (err) {
+      const message = err.code === 'LIMIT_FILE_SIZE'
+        ? 'Each report file must be 20 MB or smaller.'
+        : err.code === 'LIMIT_FILE_COUNT'
+          ? 'You can upload up to 10 report files at a time.'
+          : err.message;
+      return res.status(400).json({ message });
+    }
+    next();
+  });
+};
+const careHomeNames = ['Girls Home', 'Boys Home', 'Kids Home', 'Home for the Aged', 'Kamada'];
 
 app.use('/uploads', express.static(uploadDirectory));
 
@@ -134,6 +152,16 @@ const db = mysql.createConnection({
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'kalakbay__ai'
 });
+
+const notifyAllUsers = (actorId, message, behaviorRelated = false) => {
+  db.query(
+    "INSERT INTO notifications (recipient_id, actor_id, message, behavior_related) SELECT id, ?, ?, ? FROM users WHERE role NOT IN ('psychometrician', 'user') OR ? = 1",
+    [actorId, message, behaviorRelated ? 1 : 0, behaviorRelated ? 1 : 0],
+    (err) => {
+      if (err) console.error('Failed to create system notification:', err.message);
+    }
+  );
+};
 
 const createPasswordResetCodesTable = () => {
   db.query(`
@@ -335,6 +363,68 @@ const createClientDocumentsTable = () => {
   });
 };
 
+const createHomeReportsTable = () => {
+  db.query(`
+    CREATE TABLE IF NOT EXISTS home_reports (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      home_name VARCHAR(100) NOT NULL,
+      report_type ENUM('monthly', 'yearly') NOT NULL,
+      report_period VARCHAR(7) NOT NULL,
+      original_name VARCHAR(255) NOT NULL,
+      stored_name VARCHAR(255) NOT NULL UNIQUE,
+      mime_type VARCHAR(150),
+      file_size BIGINT UNSIGNED NOT NULL,
+      uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_home_reports_period (home_name, report_type, report_period, uploaded_at)
+    )
+  `, (err) => {
+    if (err) {
+      console.error('Failed to create home reports table:', err.message);
+      process.exit(1);
+    }
+    console.log('Home reports table is ready.');
+  });
+};
+
+const createNotificationsTable = () => {
+  db.query(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      recipient_id INT NOT NULL,
+      actor_id INT NULL,
+      message VARCHAR(255) NOT NULL,
+      behavior_related TINYINT(1) NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      read_at DATETIME NULL,
+      INDEX idx_notifications_recipient (recipient_id, read_at, created_at),
+      CONSTRAINT fk_notifications_recipient
+        FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `, (err) => {
+    if (err) {
+      console.error('Failed to create notifications table:', err.message);
+      process.exit(1);
+    }
+    db.query("SHOW COLUMNS FROM notifications LIKE 'behavior_related'", (columnError, columns) => {
+      if (columnError) {
+        console.error('Failed to inspect notifications table:', columnError.message);
+        process.exit(1);
+      }
+      if (columns.length) {
+        console.log('Notifications table is ready.');
+        return;
+      }
+      db.query('ALTER TABLE notifications ADD COLUMN behavior_related TINYINT(1) NOT NULL DEFAULT 0', (migrationError) => {
+        if (migrationError) {
+          console.error('Failed to add behavior filter to notifications:', migrationError.message);
+          process.exit(1);
+        }
+        console.log('Notifications table is ready.');
+      });
+    });
+  });
+};
+
 const createClientTable = () => {
   const sql = `
     CREATE TABLE IF NOT EXISTS clients (
@@ -474,10 +564,75 @@ db.connect((err) => {
   console.log('MySQL connected successfully!');
   createUsersTable();
   createClientTable();
+  createHomeReportsTable();
+  createNotificationsTable();
 });
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Backend running' });
+});
+
+app.get('/api/notifications', requireAuth, (req, res) => {
+  const behaviorOnly = ['psychometrician', 'user'].includes(req.auth.role);
+  const behaviorFilter = behaviorOnly ? ' AND behavior_related = 1' : '';
+  db.query(
+    `SELECT id, message, created_at, read_at FROM notifications WHERE recipient_id = ?${behaviorFilter} ORDER BY created_at DESC LIMIT 50`,
+    [req.auth.id],
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ message: 'Failed to load notifications.', error: err.message });
+      }
+      db.query(
+        `SELECT COUNT(*) AS unread_count FROM notifications WHERE recipient_id = ?${behaviorFilter} AND read_at IS NULL`,
+        [req.auth.id],
+        (countError, counts) => {
+          if (countError) {
+            return res.status(500).json({ message: 'Failed to count unread notifications.', error: countError.message });
+          }
+          res.json({ notifications: rows, unread_count: Number(counts[0].unread_count) });
+        }
+      );
+    }
+  );
+});
+
+app.put('/api/notifications/read', requireAuth, (req, res) => {
+  const behaviorOnly = ['psychometrician', 'user'].includes(req.auth.role);
+  const behaviorFilter = behaviorOnly ? ' AND behavior_related = 1' : '';
+  db.query(
+    `UPDATE notifications SET read_at = CURRENT_TIMESTAMP WHERE recipient_id = ? AND read_at IS NULL${behaviorFilter}`,
+    [req.auth.id],
+    (err) => {
+      if (err) {
+        return res.status(500).json({ message: 'Failed to mark notifications as read.', error: err.message });
+      }
+      res.json({ message: 'Notifications marked as read.' });
+    }
+  );
+});
+
+app.delete('/api/notifications/:notificationId', requireAuth, (req, res) => {
+  const notificationId = Number(req.params.notificationId);
+  if (!Number.isInteger(notificationId) || notificationId <= 0) {
+    return res.status(400).json({ message: 'Invalid notification ID.' });
+  }
+
+  const behaviorFilter = ['psychometrician', 'user'].includes(req.auth.role)
+    ? ' AND behavior_related = 1'
+    : '';
+  db.query(
+    `DELETE FROM notifications WHERE id = ? AND recipient_id = ?${behaviorFilter}`,
+    [notificationId, req.auth.id],
+    (err, result) => {
+      if (err) {
+        return res.status(500).json({ message: 'Failed to delete notification.', error: err.message });
+      }
+      if (!result.affectedRows) {
+        return res.status(404).json({ message: 'Notification not found.' });
+      }
+      res.json({ message: 'Notification deleted.' });
+    }
+  );
 });
 
 app.get('/api/dashboard', requireAuth, requireRoles(['superadmin', 'admin', 'social_worker', 'psychometrician', 'user']), (req, res) => {
@@ -730,6 +885,107 @@ app.delete('/api/clients/:id/documents/:documentId', requireAuth, requireRoles(c
   );
 });
 
+app.get('/api/home-reports', requireAuth, requireRoles(caseManagementRoles), (req, res) => {
+  const { home_name, report_type, report_period } = req.query;
+  const periodIsValid = report_type === 'monthly'
+    ? /^\d{4}-(0[1-9]|1[0-2])$/.test(String(report_period || ''))
+    : report_type === 'yearly' && /^\d{4}$/.test(String(report_period || ''));
+
+  if (!careHomeNames.includes(home_name) || !periodIsValid) {
+    return res.status(400).json({ message: 'Choose a valid care home, report type, and period.' });
+  }
+
+  db.query(
+    'SELECT id, home_name, report_type, report_period, original_name, mime_type, file_size, uploaded_at FROM home_reports WHERE home_name = ? AND report_type = ? AND report_period = ? ORDER BY uploaded_at DESC',
+    [home_name, report_type, report_period],
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ message: 'Failed to load home reports.', error: err.message });
+      }
+      res.json(rows);
+    }
+  );
+});
+
+app.post('/api/home-reports', requireAuth, requireRoles(caseManagementRoles), uploadHomeReportFiles, (req, res) => {
+  const files = req.files || [];
+  const { home_name, report_type, report_period } = req.body;
+  const periodIsValid = report_type === 'monthly'
+    ? /^\d{4}-(0[1-9]|1[0-2])$/.test(String(report_period || ''))
+    : report_type === 'yearly' && /^\d{4}$/.test(String(report_period || ''));
+
+  const removeFiles = () => files.forEach((file) => fs.promises.unlink(path.join(documentDirectory, file.filename)).catch(() => {}));
+  if (!files.length) {
+    return res.status(400).json({ message: 'Choose at least one report file to upload.' });
+  }
+  if (!careHomeNames.includes(home_name) || !periodIsValid) {
+    removeFiles();
+    return res.status(400).json({ message: 'Choose a valid care home, report type, and period.' });
+  }
+
+  const reportRows = files.map((file) => {
+    const originalName = file.originalname
+      .split(/[\\/]/)
+      .pop()
+      .replace(/[\r\n"]/g, '_')
+      .slice(0, 255) || 'report';
+    return [home_name, report_type, report_period, originalName, file.filename, file.mimetype, file.size];
+  });
+
+  db.query(
+    'INSERT INTO home_reports (home_name, report_type, report_period, original_name, stored_name, mime_type, file_size) VALUES ?',
+    [reportRows],
+    (err, result) => {
+      if (err) {
+        removeFiles();
+        return res.status(500).json({ message: 'Failed to save home report files.', error: err.message });
+      }
+      notifyAllUsers(req.auth.id, `A ${report_type} report was uploaded to ${home_name}.`);
+      res.status(201).json({ message: 'Home reports uploaded successfully.', count: result.affectedRows });
+    }
+  );
+});
+
+app.get('/api/home-reports/:reportId/download', requireAuth, requireRoles(caseManagementRoles), (req, res) => {
+  db.query(
+    'SELECT original_name, stored_name, home_name, report_type FROM home_reports WHERE id = ?',
+    [req.params.reportId],
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({ message: 'Failed to find report file.', error: err.message });
+      }
+      if (!rows[0]) {
+        return res.status(404).json({ message: 'Report file not found.' });
+      }
+      res.download(path.join(documentDirectory, rows[0].stored_name), rows[0].original_name, (downloadError) => {
+        if (downloadError && !res.headersSent) {
+          res.status(404).json({ message: 'The saved report file could not be found.' });
+        }
+      });
+    }
+  );
+});
+
+app.delete('/api/home-reports/:reportId', requireAuth, requireRoles(caseManagementRoles), (req, res) => {
+  db.query('SELECT stored_name FROM home_reports WHERE id = ?', [req.params.reportId], (findError, rows) => {
+    if (findError) {
+      return res.status(500).json({ message: 'Failed to find report file.', error: findError.message });
+    }
+    if (!rows[0]) {
+      return res.status(404).json({ message: 'Report file not found.' });
+    }
+
+    db.query('DELETE FROM home_reports WHERE id = ?', [req.params.reportId], (deleteError) => {
+      if (deleteError) {
+        return res.status(500).json({ message: 'Failed to delete report file.', error: deleteError.message });
+      }
+      fs.promises.unlink(path.join(documentDirectory, rows[0].stored_name)).catch(() => {});
+      notifyAllUsers(req.auth.id, `A ${rows[0].report_type} report was removed from ${rows[0].home_name}.`);
+      res.json({ message: 'Report file deleted successfully.' });
+    });
+  });
+});
+
 app.post('/api/clients', requireAuth, requireRoles(caseManagementRoles), uploadClientImages, (req, res) => {
   const data = req.body;
   const nameParts = getClientNameParts(data);
@@ -831,6 +1087,12 @@ app.post('/api/clients', requireAuth, requireRoles(caseManagementRoles), uploadC
       return res.status(500).json({ message: 'Failed to create client record.', error: err.message });
     }
 
+    const reportHome = careHomeNames.includes(data.home_name) ? data.home_name : 'a care home';
+    const hasBehaviorNotes = Boolean(String(data.behavior_notes || "").trim());
+    const message = hasBehaviorNotes
+      ? `A client was added in ${reportHome}. Behavior notes were recorded.`
+      : `A client was added in ${reportHome}.`;
+    notifyAllUsers(req.auth.id, message, hasBehaviorNotes);
     res.status(201).json({
       message: 'Client record created successfully.',
       id: result.insertId
@@ -909,16 +1171,28 @@ app.put('/api/clients/:id', requireAuth, requireRoles(caseManagementRoles), uplo
     id
   ];
 
-  db.query(sql, values, (err, result) => {
-    if (err) {
-      return res.status(500).json({ message: 'Failed to update client record.', error: err.message });
+  db.query('SELECT behavior_notes FROM clients WHERE id = ?', [id], (lookupError, existingClients) => {
+    if (lookupError) {
+      return res.status(500).json({ message: 'Could not check the existing client record.', error: lookupError.message });
     }
-
-    if (result.affectedRows === 0) {
+    if (!existingClients.length) {
       return res.status(404).json({ message: 'Client not found.' });
     }
 
-    res.json({ message: 'Client updated successfully.' });
+    const previousBehaviorNotes = String(existingClients[0].behavior_notes || '').trim();
+    db.query(sql, values, (err, result) => {
+      if (err) {
+        return res.status(500).json({ message: 'Failed to update client record.', error: err.message });
+      }
+
+      const reportHome = careHomeNames.includes(data.home_name) ? data.home_name : 'a care home';
+      const behaviorChanged = previousBehaviorNotes !== String(data.behavior_notes || '').trim();
+      const message = behaviorChanged
+        ? `Behavior notes were updated for a client in ${reportHome}.`
+        : `A client record was updated in ${reportHome}.`;
+      notifyAllUsers(req.auth.id, message, behaviorChanged);
+      res.json({ message: 'Client updated successfully.' });
+    });
   });
 });
 
@@ -940,6 +1214,7 @@ app.delete('/api/clients/:id', requireAuth, requireRoles(caseManagementRoles), (
       }
 
       documents.forEach((document) => fs.promises.unlink(path.join(documentDirectory, document.stored_name)).catch(() => {}));
+      notifyAllUsers(req.auth.id, 'A client record was deleted.');
       res.json({ message: 'Client deleted successfully.' });
     });
   });
@@ -983,6 +1258,7 @@ app.post('/api/auth/register', requireAuth, requireSuperadmin, (req, res) => {
         return res.status(500).json({ message: 'Registration failed.', error: err.message });
       }
 
+      notifyAllUsers(req.auth.id, 'A staff account was created.');
       res.status(201).json({
         message: 'User registered successfully.',
         user: {
@@ -1172,6 +1448,40 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
   );
 });
 
+app.delete('/api/auth/me/profile-picture', requireAuth, (req, res) => {
+  db.query('SELECT profile_picture FROM users WHERE id = ?', [req.auth.id], (lookupError, rows) => {
+    if (lookupError) {
+      return res.status(500).json({ message: 'Could not load the profile picture.', error: lookupError.message });
+    }
+    if (!rows.length) {
+      return res.status(404).json({ message: 'User account not found.' });
+    }
+
+    const photoPath = rows[0].profile_picture;
+    db.query('UPDATE users SET profile_picture = NULL WHERE id = ?', [req.auth.id], (updateError) => {
+      if (updateError) {
+        return res.status(500).json({ message: 'Could not remove the profile picture.', error: updateError.message });
+      }
+
+      if (photoPath?.startsWith('/uploads/')) {
+        fs.promises.unlink(path.join(uploadDirectory, path.basename(photoPath))).catch(() => {});
+      }
+
+      db.query(
+        'SELECT id, first_name, middle_initial, last_name, age, email, role, position, profile_picture FROM users WHERE id = ?',
+        [req.auth.id],
+        (profileError, profiles) => {
+          if (profileError) {
+            return res.status(500).json({ message: 'Profile picture removed, but could not reload the profile.' });
+          }
+          notifyAllUsers(req.auth.id, 'A user profile picture was removed.');
+          res.json(profiles[0]);
+        }
+      );
+    });
+  });
+});
+
 app.put('/api/auth/me', requireAuth, imageUpload.single('profile_picture'), (req, res) => {
   const firstName = String(req.body.first_name || '').trim();
   const middleInitial = String(req.body.middle_initial || '').trim();
@@ -1223,6 +1533,7 @@ app.put('/api/auth/me', requireAuth, imageUpload.single('profile_picture'), (req
         [req.auth.id],
         (profileError, rows) => {
           if (profileError) return res.status(500).json({ message: 'Profile updated, but could not reload it.' });
+          notifyAllUsers(req.auth.id, 'A user profile was updated.');
           res.json(rows[0]);
         }
       );
@@ -1291,6 +1602,7 @@ app.delete('/api/users/:id', requireAuth, requireSuperadmin, (req, res) => {
         return res.status(404).json({ message: 'User account not found.' });
       }
 
+      notifyAllUsers(req.auth.id, 'A staff account was deleted.');
       const photoPath = rows[0].profile_picture;
       if (photoPath?.startsWith('/uploads/')) {
         fs.promises.unlink(path.join(uploadDirectory, path.basename(photoPath))).catch(() => {});

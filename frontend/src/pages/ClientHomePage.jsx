@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Plus, Pencil, Trash2, Eye, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, X, FileText, Upload, Download } from "lucide-react";
 import api from "../services/api.js";
 
 const INITIAL_FORM = {
@@ -31,20 +31,12 @@ const INITIAL_FORM = {
   present_whereabouts: "",
   behavior_notes: "",
 };
-const CASE_CATEGORIES = [
-  "Reach-Out",
-  "Foundling",
-  "Abandoned",
-  "Physically Abused",
-  "Sexually Abused",
-  "OSAEC",
-  "Neglected",
-  "Curfew",
-  "Orphaned",
-  "Homeless",
-  "Street Child",
-];
 const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api").replace(/\/api\/?$/, "");
+const formatFileSize = (bytes) => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
 
 const imageUrl = (value) => value?.startsWith("http") ? value : `${API_ORIGIN}${value}`;
 const clientFullName = (client) => [client.first_name, client.middle_initial, client.last_name].filter(Boolean).join(" ") || client.name;
@@ -71,6 +63,19 @@ export default function ClientHomePage({ homeName }) {
   const [form, setForm] = useState({ ...INITIAL_FORM, home_name: homeName });
   const [selectedImages, setSelectedImages] = useState({});
   const [imagePreviews, setImagePreviews] = useState({});
+  const [activeView, setActiveView] = useState("clients");
+  const [reportMonth, setReportMonth] = useState(() => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [reportYear, setReportYear] = useState(String(new Date().getFullYear()));
+  const [reportFiles, setReportFiles] = useState([]);
+  const [reports, setReports] = useState([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [reportsUploading, setReportsUploading] = useState(false);
+  const [reportsError, setReportsError] = useState("");
+  const reportType = activeView === "yearly" ? "yearly" : "monthly";
+  const reportPeriod = reportType === "monthly" ? reportMonth : reportYear;
 
   const fetchClients = async () => {
     try {
@@ -88,6 +93,30 @@ export default function ClientHomePage({ homeName }) {
   useEffect(() => {
     fetchClients();
   }, [homeName]);
+
+  useEffect(() => {
+    if (activeView === "clients") return undefined;
+
+    let cancelled = false;
+    setReportsLoading(true);
+    setReportsError("");
+    api.get("/home-reports", {
+      params: { home_name: homeName, report_type: reportType, report_period: reportPeriod },
+    })
+      .then((response) => {
+        if (!cancelled) setReports(response.data || []);
+      })
+      .catch((err) => {
+        if (!cancelled) setReportsError(err?.response?.data?.message || "Failed to load home reports.");
+      })
+      .finally(() => {
+        if (!cancelled) setReportsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeView, homeName, reportPeriod, reportType]);
 
   useEffect(() => {
     const clientId = location.state?.editClientId;
@@ -172,6 +201,60 @@ export default function ClientHomePage({ homeName }) {
     }
   };
 
+  const handleReportUpload = async (event) => {
+    event.preventDefault();
+    if (!reportFiles.length) return;
+
+    const formElement = event.currentTarget;
+    const payload = new FormData();
+    payload.append("home_name", homeName);
+    payload.append("report_type", reportType);
+    payload.append("report_period", reportPeriod);
+    reportFiles.forEach((file) => payload.append("documents", file));
+    setReportsUploading(true);
+    setReportsError("");
+
+    try {
+      await api.post("/home-reports", payload);
+      const response = await api.get("/home-reports", {
+        params: { home_name: homeName, report_type: reportType, report_period: reportPeriod },
+      });
+      setReports(response.data || []);
+      setReportFiles([]);
+      formElement.reset();
+    } catch (err) {
+      setReportsError(err?.response?.data?.message || "Failed to upload home reports.");
+    } finally {
+      setReportsUploading(false);
+    }
+  };
+
+  const handleReportDownload = async (report) => {
+    try {
+      const response = await api.get(`/home-reports/${report.id}/download`, { responseType: "blob" });
+      const downloadUrl = URL.createObjectURL(response.data);
+      const link = window.document.createElement("a");
+      link.href = downloadUrl;
+      link.download = report.original_name;
+      link.click();
+      URL.revokeObjectURL(downloadUrl);
+    } catch (err) {
+      setReportsError(err?.response?.data?.message || "Failed to download report file.");
+    }
+  };
+
+  const handleReportDelete = async (report) => {
+    if (!window.confirm(`Delete ${report.original_name}?`)) return;
+
+    try {
+      await api.delete(`/home-reports/${report.id}`);
+      setReports((current) => current.filter((item) => item.id !== report.id));
+      setReportsError("");
+    } catch (err) {
+      setReportsError(err?.response?.data?.message || "Failed to delete report file.");
+    }
+  };
+
   const totalClients = useMemo(() => clients.length, [clients]);
 
   return (
@@ -184,6 +267,7 @@ export default function ClientHomePage({ homeName }) {
 
         <button
           type="button"
+          hidden={activeView !== "clients"}
           onClick={() => setShowForm(true)}
           className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark"
         >
@@ -192,13 +276,32 @@ export default function ClientHomePage({ homeName }) {
         </button>
       </div>
 
-      {error && (
+      <div role="tablist" aria-label={`${homeName} sections`} className="flex gap-5 border-b border-ink/10">
+        {[
+          ["clients", "Clients"],
+          ["monthly", "Monthly Reports"],
+          ["yearly", "Yearly Reports"],
+        ].map(([view, label]) => (
+          <button
+            key={view}
+            type="button"
+            role="tab"
+            aria-selected={activeView === view}
+            onClick={() => setActiveView(view)}
+            className={`border-b-2 px-1 pb-3 text-sm font-semibold transition-colors ${activeView === view ? "border-primary text-primary" : "border-transparent text-muted hover:text-ink900"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeView === "clients" && error && (
         <div className="rounded-xl border border-risk/20 bg-risk-light px-4 py-3 text-sm text-risk">
           {error}
         </div>
       )}
 
-      <div className="rounded-xl2 bg-white p-4 shadow-card">
+      {activeView === "clients" ? <div className="rounded-xl2 bg-white p-4 shadow-card">
         <div className="flex items-center justify-between border-b border-ink/5 pb-3">
           <h3 className="font-display text-lg font-bold text-ink900">Client List</h3>
           <span className="rounded-full bg-primary-light px-2.5 py-1 text-xs font-semibold text-primary-dark">
@@ -266,9 +369,82 @@ export default function ClientHomePage({ homeName }) {
             </table>
           </div>
         )}
-      </div>
+      </div> : (
+        <section className="rounded-xl2 bg-white p-5 shadow-card">
+          <div className="flex flex-col gap-4 border-b border-ink/5 pb-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">{homeName}</p>
+              <h3 className="mt-1 font-display text-lg font-bold text-ink900">
+                {reportType === "monthly" ? "Monthly admissions reports" : "Yearly admissions reports"}
+              </h3>
+              <p className="mt-1 text-sm text-muted">Upload and keep the report files for this care home.</p>
+            </div>
+            <label className="flex shrink-0 items-center gap-2 text-sm font-medium text-ink900">
+              <span>{reportType === "monthly" ? "Month" : "Year"}</span>
+              {reportType === "monthly" ? (
+                <input type="month" value={reportMonth} onChange={(event) => setReportMonth(event.target.value)} className="rounded-lg border border-ink/10 bg-white px-3 py-2 outline-none focus:border-primary" />
+              ) : (
+                <input type="number" min="2000" max="2100" value={reportYear} onChange={(event) => setReportYear(event.target.value)} className="w-28 rounded-lg border border-ink/10 bg-white px-3 py-2 outline-none focus:border-primary" />
+              )}
+            </label>
+          </div>
 
-      {showForm && (
+          <form onSubmit={handleReportUpload} className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+            <input
+              type="file"
+              multiple
+              onChange={(event) => setReportFiles(Array.from(event.target.files || []))}
+              className="min-w-0 flex-1 rounded-lg border border-ink/10 bg-surface px-3 py-2 text-sm"
+              aria-label={`Choose ${reportType} report files`}
+            />
+            <button
+              type="submit"
+              disabled={!reportFiles.length || reportsUploading}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Upload size={16} />
+              {reportsUploading ? "Uploading..." : `Upload${reportFiles.length ? ` (${reportFiles.length})` : ""}`}
+            </button>
+          </form>
+          <p className="mt-2 text-xs text-muted">You can upload up to 10 files at a time, 20 MB per file.</p>
+
+          {reportsError && <p role="alert" className="mt-4 rounded-lg border border-risk/20 bg-risk-light px-3 py-2 text-sm text-risk">{reportsError}</p>}
+
+          <div className="mt-5 border-t border-ink/5 pt-2">
+            {reportsLoading ? (
+              <p className="py-4 text-sm text-muted">Loading reports...</p>
+            ) : reports.length === 0 ? (
+              <p className="py-4 text-sm text-muted">No reports uploaded for {reportPeriod || "this period"} yet.</p>
+            ) : (
+              <ul className="divide-y divide-ink/5">
+                {reports.map((report) => (
+                  <li key={report.id} className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <FileText size={18} className="shrink-0 text-muted" />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-ink900">{report.original_name}</p>
+                        <p className="text-xs text-muted">
+                          {formatFileSize(Number(report.file_size))} · {new Date(report.uploaded_at).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button type="button" onClick={() => handleReportDownload(report)} className="inline-flex items-center gap-1.5 rounded-lg border border-ink/10 px-3 py-2 text-xs font-semibold text-primary hover:border-primary">
+                        <Download size={14} /> Download
+                      </button>
+                      <button type="button" onClick={() => handleReportDelete(report)} aria-label={`Delete ${report.original_name}`} className="rounded-lg border border-risk/20 bg-risk-light p-2 text-risk hover:bg-risk hover:text-white">
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
+      )}
+
+      {activeView === "clients" && showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink900/50 p-4">
           <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white p-5 shadow-card">
             <div className="mb-4 flex items-center justify-between">
@@ -357,14 +533,11 @@ export default function ClientHomePage({ homeName }) {
 
               <label className="space-y-1">
                 <span className="text-sm font-medium text-ink900">Case Category</span>
-                <select name="case_category" value={form.case_category} onChange={handleChange} className="w-full rounded-lg border border-ink/10 bg-surface px-3 py-2.5 outline-none focus:border-primary">
-                  <option value="">Select a case category</option>
-                  {CASE_CATEGORIES.map((category) => <option key={category} value={category}>{category}</option>)}
-                </select>
+                <input name="case_category" value={form.case_category} onChange={handleChange} className="w-full rounded-lg border border-ink/10 bg-surface px-3 py-2.5 outline-none focus:border-primary" />
               </label>
 
               <label className="space-y-1 md:col-span-2">
-                <span className="text-sm font-medium text-ink900">Behavior Notes</span>
+                <span className="text-sm font-medium text-ink900">Behavior Notes (Optional)</span>
                 <textarea name="behavior_notes" value={form.behavior_notes} onChange={handleChange} rows={4} maxLength={10000} className="w-full rounded-lg border border-ink/10 bg-surface px-3 py-2.5 outline-none focus:border-primary" />
               </label>
 

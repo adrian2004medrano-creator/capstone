@@ -1,22 +1,40 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Compass, Lock, Mail } from "lucide-react";
+import api from "../services/api.js";
 
 export default function Login() {
   const navigate = useNavigate();
   const [form, setForm] = useState({ email: "", password: "" });
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
+  useEffect(() => {
+    if (localStorage.getItem("kalakbay_auth") === "true" && localStorage.getItem("kalakbay_token")) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [navigate]);
+
+  const handleChange = (e) => setForm((current) => ({ ...current, [e.target.name]: e.target.value }));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    // TODO: replace with real auth call via services/api.js (authRoutes -> /api/auth/login)
-    setTimeout(() => {
+    setError("");
+
+    try {
+      const response = await api.post("/auth/login", form);
+      const { user, accessToken } = response.data;
+      localStorage.setItem("kalakbay_auth", "true");
+      localStorage.setItem("kalakbay_role", user.role);
+      localStorage.setItem("kalakbay_token", accessToken);
+      localStorage.setItem("kalakbay_user", JSON.stringify(user));
+      navigate("/dashboard", { replace: true });
+    } catch (err) {
+      setError(err?.response?.data?.message || "Could not sign in. Check that the backend is running.");
+    } finally {
       setLoading(false);
-      navigate("/dashboard");
-    }, 600);
+    }
   };
 
   return (
@@ -35,7 +53,7 @@ export default function Login() {
 
           <h1 className="font-display text-2xl font-bold text-ink900">Welcome back</h1>
           <p className="text-sm text-muted mt-1.5 mb-8">
-            Sign in to monitor youth cases and rehabilitation progress.
+            Sign in here.
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -71,6 +89,10 @@ export default function Login() {
               </div>
             </div>
 
+            {error && (
+              <p className="text-sm text-risk font-medium">{error}</p>
+            )}
+
             <button
               type="submit"
               disabled={loading}
@@ -79,6 +101,12 @@ export default function Login() {
               {loading ? "Signing in..." : "Sign in"}
             </button>
           </form>
+
+          <div className="mt-8 rounded-xl border border-ink/10 bg-white/60 p-3 text-xs text-muted space-y-1.5">
+            <p className="font-semibold text-ink900">Initial superadmin account</p>
+            <p>superadmin@boystown.org / superadmin123</p>
+            <p>Superadmin can create the rest of the staff accounts in Admin Management.</p>
+          </div>
 
           <p className="text-xs text-muted text-center mt-8">
             Access is limited to authorized Psychometricians and Social Workers of
@@ -91,15 +119,12 @@ export default function Login() {
       <div className="hidden lg:flex flex-1 bg-ink relative overflow-hidden items-center justify-center p-12">
         <div className="absolute inset-0 opacity-[0.07] bg-[radial-gradient(circle_at_20%_20%,white,transparent_45%)]" />
         <div className="relative max-w-md text-white">
-          <span className="text-xs font-semibold tracking-wide text-amber uppercase">
-            For institutional care teams
-          </span>
           <h2 className="font-display text-3xl font-bold mt-4 leading-tight">
-            One dashboard. Every youth. Timely intervention.
+            Welcome to Manila Boys&apos; Town Complex
           </h2>
           <p className="text-white/60 text-sm mt-4 leading-relaxed">
-            KALAKBAY AI centralizes case records, IDPs, and counseling logs — then
-            flags behavioral risk early, so your team can act before it escalates.
+            KALAKBAY AI is a case management website that helps staff organize client records,
+            care plans, counseling documentation, and reports.
           </p>
         </div>
       </div>

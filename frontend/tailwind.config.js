@@ -5,8 +5,8 @@ export default {
     extend: {
       colors: {
         ink: {
-          DEFAULT: "#132A26", // deep forest teal - sidebar/nav base
-          light: "#1B3A34",
+          DEFAULT: "#153E90", // eGovPH-style blue - sidebar/nav base
+          light: "#1E4FB0",
         },
         surface: "#F7F5EF", // warm off-white background
         primary: {

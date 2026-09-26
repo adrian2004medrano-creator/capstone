@@ -124,6 +124,8 @@ const createUsersTable = () => {
       email VARCHAR(150) NOT NULL UNIQUE,
       password VARCHAR(255) NOT NULL,
       role VARCHAR(50) NOT NULL DEFAULT 'user',
+      position VARCHAR(100) NOT NULL DEFAULT '',
+      profile_picture VARCHAR(255),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `;
@@ -135,6 +137,75 @@ const createUsersTable = () => {
     }
     console.log('Users table is ready.');
 
+    const seedBootstrapAdmin = () => {
+      const bootstrapAdmin = [
+        'Agnes C.',
+        'Aragon',
+        30,
+        'superadmin@boystown.org',
+        bcrypt.hashSync('superadmin123', 10),
+        'superadmin',
+        'Officer-in-Charge'
+      ];
+      db.query(
+        `INSERT INTO users (first_name, last_name, age, email, password, role, position)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE first_name = ?, last_name = ?, role = ?, position = ?`,
+        [...bootstrapAdmin, bootstrapAdmin[0], bootstrapAdmin[1], bootstrapAdmin[5], bootstrapAdmin[6]],
+        (seedError) => {
+          if (seedError) console.error('Failed to seed bootstrap superadmin:', seedError.message);
+        }
+      );
+    };
+
+    const ensureProfilePictureColumn = () => {
+      db.query("SHOW COLUMNS FROM users LIKE 'profile_picture'", (columnError, columns) => {
+        if (columnError) {
+          console.error('Failed to inspect users table:', columnError.message);
+          process.exit(1);
+        }
+        if (columns.length) {
+          seedBootstrapAdmin();
+          return;
+        }
+        db.query(
+          'ALTER TABLE users ADD COLUMN profile_picture VARCHAR(255) NULL',
+          (migrationError) => {
+            if (migrationError) {
+              console.error('Failed to add users.profile_picture column:', migrationError.message);
+              process.exit(1);
+            }
+            console.log('Added the missing users.profile_picture column.');
+            seedBootstrapAdmin();
+          }
+        );
+      });
+    };
+
+    const ensurePositionColumn = () => {
+      db.query("SHOW COLUMNS FROM users LIKE 'position'", (columnError, columns) => {
+        if (columnError) {
+          console.error('Failed to inspect users table:', columnError.message);
+          process.exit(1);
+        }
+        if (columns.length) {
+          ensureProfilePictureColumn();
+          return;
+        }
+        db.query(
+          "ALTER TABLE users ADD COLUMN position VARCHAR(100) NOT NULL DEFAULT ''",
+          (migrationError) => {
+            if (migrationError) {
+              console.error('Failed to add users.position column:', migrationError.message);
+              process.exit(1);
+            }
+            console.log('Added the missing users.position column.');
+            ensureProfilePictureColumn();
+          }
+        );
+      });
+    };
+
     const ensureRoleColumn = () => {
       db.query("SHOW COLUMNS FROM users LIKE 'role'", (columnError, columns) => {
         if (columnError) {
@@ -142,26 +213,8 @@ const createUsersTable = () => {
           process.exit(1);
         }
 
-        const seedBootstrapAdmin = () => {
-          const bootstrapAdmin = [
-            'Super',
-            'Admin',
-            30,
-            'superadmin@boystown.org',
-            bcrypt.hashSync('superadmin123', 10),
-            'superadmin'
-          ];
-          db.query(
-            'INSERT IGNORE INTO users (first_name, last_name, age, email, password, role) VALUES (?, ?, ?, ?, ?, ?)',
-            bootstrapAdmin,
-            (seedError) => {
-              if (seedError) console.error('Failed to seed bootstrap superadmin:', seedError.message);
-            }
-          );
-        };
-
         if (columns.length) {
-          seedBootstrapAdmin();
+          ensurePositionColumn();
           return;
         }
 
@@ -173,7 +226,7 @@ const createUsersTable = () => {
               process.exit(1);
             }
             console.log('Added the missing users.role column.');
-            seedBootstrapAdmin();
+            ensurePositionColumn();
           }
         );
       });
@@ -796,6 +849,71 @@ app.post('/api/auth/login', (req, res) => {
       accessToken
     });
   });
+});
+
+app.get('/api/auth/me', requireAuth, (req, res) => {
+  db.query(
+    'SELECT id, first_name, last_name, age, email, role, position, profile_picture FROM users WHERE id = ?',
+    [req.auth.id],
+    (err, rows) => {
+      if (err) return res.status(500).json({ message: 'Failed to load profile.', error: err.message });
+      if (!rows.length) return res.status(404).json({ message: 'User account not found.' });
+      res.json(rows[0]);
+    }
+  );
+});
+
+app.put('/api/auth/me', requireAuth, imageUpload.single('profile_picture'), (req, res) => {
+  const firstName = String(req.body.first_name || '').trim();
+  const lastName = String(req.body.last_name || '').trim();
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const age = Number(req.body.age);
+  const discardUploadedPhoto = () => {
+    if (req.file) fs.unlink(req.file.path, () => {});
+  };
+
+  if (!firstName || firstName.length > 100 || !lastName || lastName.length > 100) {
+    discardUploadedPhoto();
+    return res.status(400).json({ message: 'First and last name are required and must be 100 characters or fewer.' });
+  }
+  if (!Number.isInteger(age) || age < 18 || age > 120) {
+    discardUploadedPhoto();
+    return res.status(400).json({ message: 'Age must be a whole number between 18 and 120.' });
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 150) {
+    discardUploadedPhoto();
+    return res.status(400).json({ message: 'Enter a valid email address.' });
+  }
+
+  const fields = [firstName, lastName, age, email];
+  const photoSql = req.file ? ', profile_picture = ?' : '';
+  if (req.file) fields.push(`/uploads/${req.file.filename}`);
+  fields.push(req.auth.id);
+
+  db.query(
+    `UPDATE users SET first_name = ?, last_name = ?, age = ?, email = ?${photoSql} WHERE id = ?`,
+    fields,
+    (err, result) => {
+      if (err) {
+        discardUploadedPhoto();
+        const isDuplicateEmail = err.code === 'ER_DUP_ENTRY';
+        return res.status(isDuplicateEmail ? 409 : 500).json({
+          message: isDuplicateEmail ? 'That email address is already in use.' : 'Failed to update profile.',
+          ...(!isDuplicateEmail && { error: err.message })
+        });
+      }
+      if (!result.affectedRows) return res.status(404).json({ message: 'User account not found.' });
+
+      db.query(
+        'SELECT id, first_name, last_name, age, email, role, position, profile_picture FROM users WHERE id = ?',
+        [req.auth.id],
+        (profileError, rows) => {
+          if (profileError) return res.status(500).json({ message: 'Profile updated, but could not reload it.' });
+          res.json(rows[0]);
+        }
+      );
+    }
+  );
 });
 
 app.get('/api/users', requireAuth, requireSuperadmin, (req, res) => {

@@ -3,16 +3,47 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../services/api.js";
 
+function readCachedProfile() {
+  try {
+    return JSON.parse(localStorage.getItem("kalakbay_user") || "null");
+  } catch {
+    return null;
+  }
+}
+
 export default function Navbar({ title, subtitle, onToggleSidebar }) {
   const navigate = useNavigate();
   const [clientName, setClientName] = useState("");
   const [clientResults, setClientResults] = useState([]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [user, setUser] = useState(readCachedProfile);
   const searchRole = localStorage.getItem("kalakbay_role") || "user";
   const isPsychometrician = searchRole === "psychometrician" || searchRole === "user";
-  const user = JSON.parse(localStorage.getItem("kalakbay_user") || "null");
-  const roleLabel = (user?.role || localStorage.getItem("kalakbay_role") || "user").replaceAll("_", " ");
+  const role = user?.role || localStorage.getItem("kalakbay_role") || "user";
+  const roleLabel = user?.position || (role === "superadmin" ? "Officer-in-Charge" : role.replaceAll("_", " "));
+  const initials = `${user?.first_name?.split(/\s+/).map((part) => part[0]).join("") || "S"}${user?.last_name?.[0] || ""}`.slice(0, 3).toUpperCase();
+  const profileImage = user?.profile_picture
+    ? new URL(user.profile_picture, api.defaults.baseURL).href
+    : "";
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get("/auth/me")
+      .then(({ data }) => {
+        if (cancelled) return;
+        localStorage.setItem("kalakbay_user", JSON.stringify(data));
+        setUser(data);
+      })
+      .catch(() => {});
+
+    const syncProfile = () => setUser(readCachedProfile());
+    window.addEventListener("profile-updated", syncProfile);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("profile-updated", syncProfile);
+    };
+  }, []);
 
   useEffect(() => {
     const name = clientName.trim();
@@ -52,11 +83,11 @@ export default function Navbar({ title, subtitle, onToggleSidebar }) {
   };
 
   return (
-    <header className="sticky top-0 z-10 bg-surface/80 backdrop-blur border-b border-ink/5 px-4 md:px-10 py-5 flex items-center justify-between gap-4">
+    <header className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-ink/[0.08] bg-surface/95 px-4 py-3.5 backdrop-blur-md sm:px-6 lg:px-10">
       <div className="flex items-center gap-3">
         <button
           type="button"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-ink/10 bg-white shadow-card text-ink900 md:hidden"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-ink/10 bg-white text-ink900 md:hidden"
           onClick={onToggleSidebar}
           aria-label="Toggle sidebar navigation"
         >
@@ -64,14 +95,14 @@ export default function Navbar({ title, subtitle, onToggleSidebar }) {
         </button>
 
         <div>
-          <h1 className="font-display text-xl font-bold text-ink900">{title}</h1>
-          {subtitle && <p className="text-sm text-muted mt-0.5">{subtitle}</p>}
+          <h1 className="font-display text-lg font-semibold text-ink900 sm:text-xl">{title}</h1>
+          {subtitle && <p className="mt-0.5 hidden text-xs text-muted sm:block sm:text-sm">{subtitle}</p>}
         </div>
       </div>
 
       <div className="flex items-center gap-3">
         <div className="relative hidden sm:block">
-          <div className="flex items-center gap-2 rounded-full border border-ink/10 bg-white px-4 py-2 shadow-card focus-within:border-primary">
+          <div className="flex items-center gap-2 rounded-lg border border-ink/10 bg-white px-3.5 py-2 focus-within:border-primary">
             <Search size={16} className="text-muted" />
             <input
               type="search"
@@ -121,26 +152,36 @@ export default function Navbar({ title, subtitle, onToggleSidebar }) {
 
         <button
           type="button"
-          className="relative w-10 h-10 rounded-full bg-white border border-ink/10 shadow-card flex items-center justify-center"
+          className="relative flex h-10 w-10 items-center justify-center rounded-lg border border-ink/10 bg-white transition-colors hover:bg-surface"
         >
           <Bell size={17} className="text-ink900" />
           <span className="absolute top-2 right-2.5 w-2 h-2 rounded-full bg-risk" />
         </button>
 
-        <div className="flex items-center gap-2 pl-2">
-          <div className="w-9 h-9 rounded-full bg-primary text-white flex items-center justify-center font-display text-sm font-semibold">
-            PS
-          </div>
+        <button
+          type="button"
+          onClick={() => navigate("/profile")}
+          aria-label="Open your profile settings"
+          title="Edit profile"
+          className="flex min-w-0 items-center gap-2 rounded-lg p-1.5 text-left transition-colors hover:bg-white focus-visible:outline-offset-1"
+        >
+          {profileImage ? (
+            <img src={profileImage} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
+          ) : (
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-light font-display text-xs font-semibold text-primary-dark">
+              {initials}
+            </span>
+          )}
           <div className="hidden lg:block leading-tight">
-            <p className="text-sm font-semibold text-ink900">{user ? `${user.first_name} ${user.last_name}` : "Staff Account"}</p>
+            <p className="max-w-40 truncate text-sm font-semibold text-ink900">{user ? `${user.first_name} ${user.last_name}` : "Staff Account"}</p>
             <p className="text-xs capitalize text-muted">{roleLabel}</p>
           </div>
-        </div>
+        </button>
 
         <button
           type="button"
           onClick={handleLogout}
-          className="w-10 h-10 rounded-full hover:bg-white hover:shadow-card flex items-center justify-center text-muted hover:text-risk transition-colors"
+          className="flex h-10 w-10 items-center justify-center rounded-lg text-muted transition-colors hover:bg-white hover:text-risk"
           title="Log out"
         >
           <LogOut size={17} />

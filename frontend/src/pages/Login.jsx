@@ -38,12 +38,12 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex bg-surface">
+    <div className="min-h-screen bg-white lg:grid lg:grid-cols-[minmax(440px,0.9fr)_1.1fr]">
       {/* Left: form */}
-      <div className="flex-1 flex items-center justify-center px-6 py-12">
-        <div className="w-full max-w-sm">
-          <div className="flex items-center gap-2 mb-10">
-            <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center px-6 py-12 sm:px-10">
+        <div className="w-full max-w-[390px]">
+          <div className="mb-12 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-ink">
               <Compass size={20} className="text-white" strokeWidth={2.5} />
             </div>
             <p className="font-display font-bold text-lg text-ink900">
@@ -51,15 +51,15 @@ export default function Login() {
             </p>
           </div>
 
-          <h1 className="font-display text-2xl font-bold text-ink900">Welcome back</h1>
-          <p className="text-sm text-muted mt-1.5 mb-8">
-            Sign in here.
+          <h1 className="font-display text-[27px] font-semibold tracking-normal text-ink900">Welcome back</h1>
+          <p className="mb-8 mt-2 text-sm text-muted">
+            Sign in to your staff account.
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="text-sm font-medium text-ink900 mb-1.5 block">Email</label>
-              <div className="flex items-center gap-2 bg-white border border-ink/10 rounded-lg px-3.5 py-2.5 shadow-card focus-within:border-primary">
+              <label className="mb-1.5 block text-xs font-semibold text-ink900">Email address</label>
+              <div className="flex items-center gap-2 rounded-lg border border-ink/15 bg-white px-3.5 py-3 transition-colors focus-within:border-primary">
                 <Mail size={16} className="text-muted" />
                 <input
                   type="email"
@@ -74,8 +74,8 @@ export default function Login() {
             </div>
 
             <div>
-              <label className="text-sm font-medium text-ink900 mb-1.5 block">Password</label>
-              <div className="flex items-center gap-2 bg-white border border-ink/10 rounded-lg px-3.5 py-2.5 shadow-card focus-within:border-primary">
+              <label className="mb-1.5 block text-xs font-semibold text-ink900">Password</label>
+              <div className="flex items-center gap-2 rounded-lg border border-ink/15 bg-white px-3.5 py-3 transition-colors focus-within:border-primary">
                 <Lock size={16} className="text-muted" />
                 <input
                   type="password"
@@ -96,17 +96,11 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-primary hover:bg-primary-dark transition-colors text-white font-semibold text-sm rounded-lg py-3 mt-2 disabled:opacity-60"
+              className="mt-2 w-full rounded-lg bg-primary py-3 text-sm font-semibold text-white transition-colors hover:bg-primary-dark disabled:opacity-60"
             >
               {loading ? "Signing in..." : "Sign in"}
             </button>
           </form>
-
-          <div className="mt-8 rounded-xl border border-ink/10 bg-white/60 p-3 text-xs text-muted space-y-1.5">
-            <p className="font-semibold text-ink900">Initial superadmin account</p>
-            <p>superadmin@boystown.org / superadmin123</p>
-            <p>Superadmin can create the rest of the staff accounts in Admin Management.</p>
-          </div>
 
           <p className="text-xs text-muted text-center mt-8">
             Access is limited to authorized Psychometricians and Social Workers of
@@ -116,16 +110,22 @@ export default function Login() {
       </div>
 
       {/* Right: brand panel */}
-      <div className="hidden lg:flex flex-1 bg-ink relative overflow-hidden items-center justify-center p-12">
-        <div className="absolute inset-0 opacity-[0.07] bg-[radial-gradient(circle_at_20%_20%,white,transparent_45%)]" />
-        <div className="relative max-w-md text-white">
-          <h2 className="font-display text-3xl font-bold mt-4 leading-tight">
-            Welcome to Manila Boys&apos; Town Complex
+      <div className="relative hidden overflow-hidden bg-ink p-16 text-white lg:flex lg:items-end">
+        <div className="absolute inset-0 opacity-[0.1]" style={{ backgroundImage: "linear-gradient(rgba(255,255,255,.16) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.16) 1px, transparent 1px)", backgroundSize: "52px 52px", maskImage: "linear-gradient(to bottom right, black, transparent 75%)" }} />
+        <div className="absolute right-[-8rem] top-[-10rem] h-[34rem] w-[34rem] rounded-full border border-white/10" />
+        <div className="absolute right-[-3rem] top-[-5rem] h-[24rem] w-[24rem] rounded-full border border-white/10" />
+        <div className="relative max-w-xl pb-4">
+          <p className="mb-6 text-xs font-semibold uppercase tracking-[0.16em] text-[#E4B968]">Manila Boys&apos; Town Complex</p>
+          <h2 className="font-display text-4xl font-semibold leading-tight">
+            Care begins with seeing the whole person.
           </h2>
-          <p className="text-white/60 text-sm mt-4 leading-relaxed">
-            KALAKBAY AI is a case management website that helps staff organize client records,
-            care plans, counseling documentation, and reports.
+          <p className="mt-5 max-w-md text-sm leading-7 text-white/65">
+            A shared workspace for client records, development plans, counseling documentation, and coordinated care.
           </p>
+          <div className="mt-14 flex items-center gap-3 text-xs text-white/45">
+            <span className="h-px w-10 bg-[#E4B968]" />
+            KALAKBAY AI <span className="text-white/25">/</span> Staff portal
+          </div>
         </div>
       </div>
     </div>

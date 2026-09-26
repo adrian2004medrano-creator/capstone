@@ -48,20 +48,20 @@ export default function Sidebar({ isOpen, onClose }) {
       />
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col bg-ink text-white/90 transition-transform duration-200 md:static md:z-auto md:w-64 md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-[272px] shrink-0 flex-col bg-ink text-white/90 transition-transform duration-200 md:sticky md:top-0 md:h-screen md:translate-x-0 ${
           isOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
         }`}
       >
-        <div className="flex items-center justify-between gap-2 px-6 py-6">
+        <div className="flex items-center justify-between gap-2 border-b border-white/[0.09] px-5 py-6">
           <div className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary">
               <Compass size={18} className="text-white" strokeWidth={2.5} />
             </div>
             <div>
-              <p className="font-display font-bold text-[15px] leading-none text-white">
-                KALAKBAY <span className="text-amber">AI</span>
+              <p className="font-display text-[14px] font-bold leading-none tracking-[0.04em] text-white">
+                KALAKBAY <span className="text-[#E4B968]">AI</span>
               </p>
-              <p className="text-[11px] text-white/50 mt-1">Manila Boys&apos; Town Complex</p>
+              <p className="mt-1.5 text-[11px] text-white/50">Manila Boys&apos; Town Complex</p>
             </div>
           </div>
 
@@ -75,7 +75,8 @@ export default function Sidebar({ isOpen, onClose }) {
           </button>
         </div>
 
-        <nav className="flex-1 px-3 mt-2 space-y-1">
+        <div className="px-5 pb-2 pt-7 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/40">Workspace</div>
+        <nav className="flex-1 space-y-1 px-3">
           {visibleNavItems.map(({ to, label, icon: Icon }) => (
             <NavLink key={to} to={to} className={navLinkClass} onClick={onClose}>
               <Icon size={18} strokeWidth={2} />
@@ -84,8 +85,9 @@ export default function Sidebar({ isOpen, onClose }) {
           ))}
         </nav>
 
-        <div className="px-4 py-5 mx-3 mb-4 rounded-xl bg-white/5">
-          <p className="text-[11px] text-white/50 leading-relaxed">
+        <div className="mx-3 mb-4 rounded-lg border border-white/[0.08] bg-white/[0.035] px-4 py-4">
+          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#E4B968]">Clinical reminder</p>
+          <p className="text-[11px] leading-relaxed text-white/55">
             Predictive alerts are guidance only, every flagged case still needs a
             professional&apos;s judgment.
           </p>

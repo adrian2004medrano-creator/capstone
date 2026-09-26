@@ -15,6 +15,7 @@ import IDP from "../pages/IDP.jsx";
 import Counseling from "../pages/Counseling.jsx";
 import Reports from "../pages/Reports.jsx";
 import Admin from "../pages/Admin.jsx";
+import Profile from "../pages/Profile.jsx";
 
 const isAuthenticated = () => localStorage.getItem("kalakbay_auth") === "true";
 const getUserRole = () => localStorage.getItem("kalakbay_role") || "user";
@@ -48,6 +49,7 @@ export default function AppRoutes() {
           </ProtectedRoute>
         }
       >
+        <Route path="/profile" element={<Profile />} />
         <Route
           path="/dashboard"
           element={

@@ -10,6 +10,7 @@ const PAGE_META = {
   "/counseling": { title: "Counseling Records", subtitle: "Session logs and behavioral notes" },
   "/reports": { title: "Reports & Analytics", subtitle: "Institutional insights generated from case data" },
   "/admin": { title: "Admin Management", subtitle: "Accounts, task assignment, and audit logs" },
+  "/profile": { title: "My Profile", subtitle: "Your account details and profile photo" },
 };
 
 export default function Layout() {
@@ -37,15 +38,15 @@ export default function Layout() {
       : { title: "" });
 
   return (
-    <div className="flex min-h-screen bg-surface">
+    <div className="min-h-screen bg-surface md:flex">
       <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
-      <div className="flex-1 min-w-0">
+      <div className="min-w-0 flex-1">
         <Navbar
           title={meta.title}
           subtitle={meta.subtitle}
           onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
         />
-        <main className="px-6 md:px-10 py-8">
+        <main className="mx-auto w-full max-w-[1600px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8">
           <Outlet />
         </main>
       </div>

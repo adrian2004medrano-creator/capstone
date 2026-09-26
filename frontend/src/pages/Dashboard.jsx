@@ -5,7 +5,7 @@ import StatCard from "../components/StatCard.jsx";
 import api from "../services/api.js";
 
 const ROLE_LABELS = {
-  superadmin: "Superadmin",
+  superadmin: "Officer-in-Charge",
   admin: "Admin",
   social_worker: "Social Worker",
   psychometrician: "Psychometrician",

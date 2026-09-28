@@ -253,9 +253,6 @@ export default function Navbar({ onToggleSidebar }) {
                 <div key={`${client.name}-${client.age}-${index}`} className="border-b border-ink/5 px-3 py-3 last:border-0">
                   <p className="text-sm font-semibold text-ink900">{client.name}</p>
                   <p className="mt-0.5 text-xs text-muted">Age {client.age ?? "not recorded"}</p>
-                  <p className="mt-2 whitespace-pre-wrap text-sm text-ink/75">
-                    {client.behavior_notes?.trim() || "No behavior notes recorded yet."}
-                  </p>
                 </div>
               ) : (
                 <button

@@ -14,6 +14,7 @@ import ClientProfile from "../pages/ClientProfile.jsx";
 import IDP from "../pages/IDP.jsx";
 import Counseling from "../pages/Counseling.jsx";
 import Admin from "../pages/Admin.jsx";
+import BackupDatabase from "../pages/BackupDatabase.jsx";
 import Profile from "../pages/Profile.jsx";
 
 const isAuthenticated = () => localStorage.getItem("kalakbay_auth") === "true";
@@ -138,12 +139,19 @@ export default function AppRoutes() {
             </ProtectedRoute>
           }
         />
-        <Route path="/reports" element={<Navigate to="/dashboard" replace />} />
         <Route
           path="/admin"
           element={
             <ProtectedRoute allowedRoles={["superadmin"]}>
               <Admin />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/database-backups"
+          element={
+            <ProtectedRoute allowedRoles={["superadmin", "admin", "social_worker"]}>
+              <BackupDatabase />
             </ProtectedRoute>
           }
         />

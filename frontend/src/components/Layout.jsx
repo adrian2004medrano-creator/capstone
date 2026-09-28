@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import Sidebar from "./Sidebar.jsx";
 import Navbar from "./Navbar.jsx";
+import SupportChatbot from "./SupportChatbot.jsx";
 
 export default function Layout() {
   const { pathname } = useLocation();
@@ -22,6 +23,7 @@ export default function Layout() {
           </main>
         </div>
       </div>
+      <SupportChatbot />
     </div>
   );
 }

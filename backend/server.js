@@ -13,6 +13,13 @@ require('dotenv').config();
 const app = express();
 app.use(cors());
 app.use(express.json());
+let databaseImportInProgress = false;
+app.use((req, res, next) => {
+  if (databaseImportInProgress && req.path.startsWith('/api/')) {
+    return res.status(503).json({ message: 'Database restore is in progress. Please try again shortly.' });
+  }
+  next();
+});
 
 if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
   throw new Error('JWT_SECRET must be set when NODE_ENV is production.');
@@ -65,6 +72,7 @@ const requireRoles = (roles) => (req, res, next) => {
   }
   next();
 };
+const requireBackupAccess = requireRoles(['superadmin', 'admin', 'social_worker']);
 const caseManagementRoles = ['superadmin', 'admin', 'social_worker'];
 
 const uploadDirectory = path.join(__dirname, 'uploads');
@@ -142,7 +150,7 @@ const uploadHomeReportFiles = (req, res, next) => {
   });
 };
 const careHomeNames = ['Girls Home', 'Boys Home', 'Kids Home', 'Home for the Aged', 'Kamada'];
-
+const clientSelectColumns = 'id, home_name, past_picture, present_picture, name, first_name, middle_initial, last_name, age, sex, civil_status, religion, occupation_income, birthdate, birthplace, city_address, barangay, source_of_referral, date_admitted, case_category, educational_attainment, school_last_attended, grade_level, age_when_found, date_time_when_found, place_where_found, present_whereabouts, created_at';
 app.use('/uploads', express.static(uploadDirectory));
 
 const db = mysql.createConnection({
@@ -152,11 +160,202 @@ const db = mysql.createConnection({
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'kalakbay__ai'
 });
+const databaseBackupDirectory = path.join(__dirname, 'backups');
+const databaseSafetyBackupDirectory = path.join(databaseBackupDirectory, 'import-safety');
+fs.mkdirSync(databaseBackupDirectory, { recursive: true });
+fs.mkdirSync(databaseSafetyBackupDirectory, { recursive: true });
+const databaseBackupUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024, files: 1 }
+}).single('backup');
 
-const notifyAllUsers = (actorId, message, behaviorRelated = false) => {
+const uploadDatabaseBackup = (req, res, next) => {
+  databaseBackupUpload(req, res, (error) => {
+    if (error) {
+      const message = error.code === 'LIMIT_FILE_SIZE'
+        ? 'The database backup must be 100 MB or smaller.'
+        : error.message;
+      return res.status(400).json({ message });
+    }
+    next();
+  });
+};
+
+const splitBackupStatements = (sql) => {
+  const statements = [];
+  let statement = '';
+  let quote = null;
+  let escaped = false;
+
+  for (let index = 0; index < sql.length; index += 1) {
+    const character = sql[index];
+    if (quote) {
+      statement += character;
+      if (escaped) {
+        escaped = false;
+      } else if (character === '\\' && quote !== '`') {
+        escaped = true;
+      } else if (character === quote) {
+        if (sql[index + 1] === quote) {
+          statement += sql[index + 1];
+          index += 1;
+        } else {
+          quote = null;
+        }
+      }
+    } else if (character === '-' && sql[index + 1] === '-' && (index + 2 === sql.length || /\s/.test(sql[index + 2]))) {
+      while (index + 1 < sql.length && sql[index + 1] !== '\n') index += 1;
+    } else if (character === '#') {
+      while (index + 1 < sql.length && sql[index + 1] !== '\n') index += 1;
+    } else if (character === '/' && sql[index + 1] === '*') {
+      const commentEnd = sql.indexOf('*/', index + 2);
+      if (commentEnd === -1) throw new Error('The SQL backup contains an unclosed comment.');
+      index = commentEnd + 1;
+    } else if (character === "'" || character === '"' || character === '`') {
+      quote = character;
+      statement += character;
+    } else if (character === ';') {
+      if (statement.trim()) statements.push(statement.trim());
+      statement = '';
+    } else {
+      statement += character;
+    }
+  }
+
+  if (quote) throw new Error('The SQL backup contains an unterminated quoted value.');
+  if (statement.trim()) throw new Error('The SQL backup must end each statement with a semicolon.');
+  return statements;
+};
+
+const validateDatabaseBackup = async (sql) => {
+  const statements = splitBackupStatements(sql.replace(/^\uFEFF/, ''));
+  const [tableRows] = await db.promise().query("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'");
+  const allowedTables = new Set(tableRows.map((row) => row[Object.keys(row)[0]]));
+  const validated = [];
+  let pendingCreate = null;
+  const createdTables = new Set();
+
+  for (const rawStatement of statements) {
+    const statement = rawStatement.replace(
+      /^(\s*(?:DROP TABLE IF EXISTS|CREATE TABLE(?: IF NOT EXISTS)?|INSERT INTO|ALTER TABLE)\s+)(?:`[A-Za-z0-9_$-]+`\s*\.\s*)?(`[A-Za-z0-9_]+`)/i,
+      '$1$2'
+    ).replace(
+      /(\bREFERENCES\s+)(?:`[A-Za-z0-9_$-]+`\s*\.\s*)?(`[A-Za-z0-9_]+`)/i,
+      '$1$2'
+    );
+    if (/^CREATE\s+DATABASE(?:\s+IF\s+NOT\s+EXISTS)?\s+`?[A-Za-z0-9_$-]+`?(?:\s+.*)?$/i.test(statement)
+      || /^DROP\s+DATABASE(?:\s+IF\s+EXISTS)?\s+`?[A-Za-z0-9_$-]+`?$/i.test(statement)
+      || /^USE\s+`?[A-Za-z0-9_$-]+`?$/i.test(statement)
+      || /^SET\s+(?:SQL_MODE|TIME_ZONE|NAMES|CHARACTER_SET_CLIENT|CHARACTER_SET_RESULTS|COLLATION_CONNECTION|UNIQUE_CHECKS)\b/i.test(statement)
+      || /^SET\s+@(?:OLD_)?[A-Z0-9_]+\s*=/i.test(statement)
+      || /^START\s+TRANSACTION$/i.test(statement)
+      || /^BEGIN$/i.test(statement)
+      || /^COMMIT$/i.test(statement)
+      || /^LOCK\s+TABLES\b[\s\S]*$/i.test(statement)
+      || /^UNLOCK\s+TABLES$/i.test(statement)
+      || /^ALTER\s+TABLE\s+`[A-Za-z0-9_]+`\s+(?:DISABLE|ENABLE)\s+KEYS$/i.test(statement)) {
+      continue;
+    }
+
+    if (/^SET\s+FOREIGN_KEY_CHECKS\s*=\s*[01]$/i.test(statement)) continue;
+    if (/^SET\s+AUTOCOMMIT\s*=\s*[01]$/i.test(statement)) continue;
+
+    const dropMatch = statement.match(/^DROP TABLE IF EXISTS `([A-Za-z0-9_]+)`$/i);
+    const createMatch = statement.match(/^CREATE TABLE(?: IF NOT EXISTS)?\s+`([A-Za-z0-9_]+)`\s*\([\s\S]+\)(?:\s+[\s\S]+)?$/i);
+    const insertMatch = statement.match(/^INSERT INTO\s+`([A-Za-z0-9_]+)`(?:\s+\([\s\S]*\))?\s+VALUES\s+[\s\S]+$/i);
+    const alterMatch = statement.match(/^ALTER TABLE\s+`([A-Za-z0-9_]+)`\s+([\s\S]+)$/i);
+
+    if (dropMatch) {
+      if (pendingCreate || createdTables.has(dropMatch[1]) || !allowedTables.has(dropMatch[1])) throw new Error('The SQL backup contains an unsupported table.');
+      pendingCreate = dropMatch[1];
+    } else if (createMatch) {
+      if (!allowedTables.has(createMatch[1]) || createdTables.has(createMatch[1]) || (pendingCreate && pendingCreate !== createMatch[1])) {
+        throw new Error('The SQL backup has an invalid table definition.');
+      }
+      if (!pendingCreate) validated.push(`DROP TABLE IF EXISTS ${mysql.escapeId(createMatch[1])}`);
+      pendingCreate = null;
+      createdTables.add(createMatch[1]);
+    } else if (insertMatch) {
+      if (!allowedTables.has(insertMatch[1]) || !createdTables.has(insertMatch[1])) {
+        throw new Error('The SQL backup contains data for an unsupported table.');
+      }
+    } else if (alterMatch) {
+      if (!allowedTables.has(alterMatch[1]) || !createdTables.has(alterMatch[1])) {
+        throw new Error('The SQL backup contains an unsupported table alteration.');
+      }
+    } else {
+      const command = statement.match(/^[A-Za-z]+(?:\s+[A-Za-z]+)?/)?.[0] || 'unknown';
+      throw new Error(`The SQL backup contains an unsupported ${command} command.`);
+    }
+
+    validated.push(statement);
+  }
+
+  if (pendingCreate) throw new Error('The SQL backup is missing a table definition.');
+  if (createdTables.size !== allowedTables.size || [...allowedTables].some((table) => !createdTables.has(table))) {
+    throw new Error('The SQL backup does not contain all tables required by this application.');
+  }
+  return ['SET FOREIGN_KEY_CHECKS=0', ...validated, 'SET FOREIGN_KEY_CHECKS=1'];
+};
+
+const createDatabaseBackup = async (directory = databaseBackupDirectory) => {
+  const [tables] = await db.promise().query("SHOW FULL TABLES WHERE Table_type = 'BASE TABLE'");
+  const tableNames = tables.map((table) => table[Object.keys(table)[0]]);
+  const statements = ['SET FOREIGN_KEY_CHECKS=0;'];
+
+  for (const tableName of tableNames) {
+    const escapedTableName = mysql.escapeId(tableName);
+    const [definitions] = await db.promise().query(`SHOW CREATE TABLE ${escapedTableName}`);
+    const createStatement = definitions[0]['Create Table'];
+    const [rows] = await db.promise().query(`SELECT * FROM ${escapedTableName}`);
+
+    statements.push(`DROP TABLE IF EXISTS ${escapedTableName};`, `${createStatement};`);
+    const columns = rows.length ? Object.keys(rows[0]) : (await db.promise().query(`SHOW COLUMNS FROM ${escapedTableName}`))[0].map(({ Field }) => Field);
+    for (let offset = 0; offset < rows.length; offset += 100) {
+      const values = rows.slice(offset, offset + 100).map((row) => (
+        `(${columns.map((column) => {
+          const value = row[column];
+          return value !== null && typeof value === 'object' && !Buffer.isBuffer(value)
+            ? mysql.escape(JSON.stringify(value))
+            : mysql.escape(value);
+        }).join(', ')})`
+      ));
+      statements.push(`INSERT INTO ${escapedTableName} (${columns.map((column) => mysql.escapeId(column)).join(', ')}) VALUES\n${values.join(',\n')};`);
+    }
+  }
+
+  statements.push('SET FOREIGN_KEY_CHECKS=1;');
+  const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const filename = `kalakbay-backup-${timestamp}-${crypto.randomUUID()}.sql`;
+  const temporaryPath = path.join(directory, `${filename}.tmp`);
+  const backupPath = path.join(directory, filename);
+
+  try {
+    await fs.promises.writeFile(temporaryPath, `${statements.join('\n\n')}\n`, 'utf8');
+    await fs.promises.rename(temporaryPath, backupPath);
+  } catch (error) {
+    await fs.promises.unlink(temporaryPath).catch(() => {});
+    throw error;
+  }
+
+  return { filename, size: (await fs.promises.stat(backupPath)).size };
+};
+
+const listDatabaseBackups = async () => {
+  const files = await fs.promises.readdir(databaseBackupDirectory);
+  const backups = await Promise.all(files
+    .filter((filename) => /^kalakbay-backup-\d{8}T\d{6}Z-[a-f0-9-]{36}\.sql$/.test(filename))
+    .map(async (filename) => {
+      const stats = await fs.promises.stat(path.join(databaseBackupDirectory, filename));
+      return { filename, size: stats.size, created_at: stats.mtime.toISOString() };
+    }));
+  return backups.sort((first, second) => second.created_at.localeCompare(first.created_at));
+};
+
+const notifyAllUsers = (actorId, message) => {
   db.query(
-    "INSERT INTO notifications (recipient_id, actor_id, message, behavior_related) SELECT id, ?, ?, ? FROM users WHERE role NOT IN ('psychometrician', 'user') OR ? = 1",
-    [actorId, message, behaviorRelated ? 1 : 0, behaviorRelated ? 1 : 0],
+    "INSERT INTO notifications (recipient_id, actor_id, message) SELECT id, ?, ? FROM users WHERE role NOT IN ('psychometrician', 'user')",
+    [actorId, message],
     (err) => {
       if (err) console.error('Failed to create system notification:', err.message);
     }
@@ -393,7 +592,6 @@ const createNotificationsTable = () => {
       recipient_id INT NOT NULL,
       actor_id INT NULL,
       message VARCHAR(255) NOT NULL,
-      behavior_related TINYINT(1) NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       read_at DATETIME NULL,
       INDEX idx_notifications_recipient (recipient_id, read_at, created_at),
@@ -405,23 +603,7 @@ const createNotificationsTable = () => {
       console.error('Failed to create notifications table:', err.message);
       process.exit(1);
     }
-    db.query("SHOW COLUMNS FROM notifications LIKE 'behavior_related'", (columnError, columns) => {
-      if (columnError) {
-        console.error('Failed to inspect notifications table:', columnError.message);
-        process.exit(1);
-      }
-      if (columns.length) {
-        console.log('Notifications table is ready.');
-        return;
-      }
-      db.query('ALTER TABLE notifications ADD COLUMN behavior_related TINYINT(1) NOT NULL DEFAULT 0', (migrationError) => {
-        if (migrationError) {
-          console.error('Failed to add behavior filter to notifications:', migrationError.message);
-          process.exit(1);
-        }
-        console.log('Notifications table is ready.');
-      });
-    });
+    console.log('Notifications table is ready.');
   });
 };
 
@@ -447,6 +629,7 @@ const createClientTable = () => {
       barangay VARCHAR(150),
       source_of_referral VARCHAR(255),
       date_admitted DATE,
+      facility_return_count SMALLINT UNSIGNED NOT NULL DEFAULT 0,
       case_category VARCHAR(255),
       educational_attainment VARCHAR(255),
       school_last_attended VARCHAR(255),
@@ -455,7 +638,6 @@ const createClientTable = () => {
       date_time_when_found DATETIME,
       place_where_found VARCHAR(255),
       present_whereabouts VARCHAR(255),
-      behavior_notes TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `;
@@ -471,7 +653,8 @@ const createClientTable = () => {
       const columnsToAdd = [
         ['first_name', "VARCHAR(100) NOT NULL DEFAULT ''"],
         ['middle_initial', 'VARCHAR(30) NULL'],
-        ['last_name', "VARCHAR(150) NOT NULL DEFAULT ''"]
+        ['last_name', "VARCHAR(150) NOT NULL DEFAULT ''"],
+        ['facility_return_count', 'SMALLINT UNSIGNED NOT NULL DEFAULT 0']
       ];
       const ensureColumn = (index) => {
         if (index === columnsToAdd.length) {
@@ -532,26 +715,7 @@ const createClientTable = () => {
       ensureColumn(0);
     };
 
-    db.query("SHOW COLUMNS FROM clients LIKE 'behavior_notes'", (columnError, columns) => {
-      if (columnError) {
-        console.error('Failed to inspect clients table:', columnError.message);
-        process.exit(1);
-      }
-
-      if (columns.length) {
-        ensureClientNameColumns();
-        return;
-      }
-
-      db.query('ALTER TABLE clients ADD COLUMN behavior_notes TEXT NULL', (migrationError) => {
-        if (migrationError) {
-          console.error('Failed to add clients.behavior_notes column:', migrationError.message);
-          process.exit(1);
-        }
-        console.log('Added the missing clients.behavior_notes column.');
-        ensureClientNameColumns();
-      });
-    });
+    ensureClientNameColumns();
   });
 };
 
@@ -572,18 +736,107 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: 'Backend running' });
 });
 
+app.get('/api/database-backups', requireAuth, requireBackupAccess, async (req, res) => {
+  try {
+    res.json(await listDatabaseBackups());
+  } catch (error) {
+    console.error('Failed to list database backups:', error.message);
+    res.status(500).json({ message: 'Could not load database backups.' });
+  }
+});
+
+app.post('/api/database-backups', requireAuth, requireBackupAccess, async (req, res) => {
+  try {
+    const backup = await createDatabaseBackup();
+    res.status(201).json({ ...backup, created_at: new Date().toISOString() });
+  } catch (error) {
+    console.error('Failed to create database backup:', error.message);
+    res.status(500).json({ message: 'Could not create the database backup.' });
+  }
+});
+
+app.delete('/api/database-backups/:filename', requireAuth, requireBackupAccess, async (req, res) => {
+  const { filename } = req.params;
+  if (!/^kalakbay-backup-\d{8}T\d{6}Z-[a-f0-9-]{36}\.sql$/.test(filename)) {
+    return res.status(400).json({ message: 'Invalid database backup filename.' });
+  }
+
+  try {
+    await fs.promises.unlink(path.join(databaseBackupDirectory, filename));
+    res.json({ message: 'Database backup deleted.' });
+  } catch (error) {
+    res.status(error.code === 'ENOENT' ? 404 : 500).json({ message: 'Could not delete the database backup.' });
+  }
+});
+
+app.post('/api/database-backups/import', requireAuth, requireBackupAccess, uploadDatabaseBackup, async (req, res) => {
+  if (!req.file) return res.status(400).json({ message: 'Choose a SQL backup file to import.' });
+  if (path.extname(req.file.originalname).toLowerCase() !== '.sql') {
+    return res.status(400).json({ message: 'Only .sql database backups can be imported.' });
+  }
+  if (databaseImportInProgress) {
+    return res.status(409).json({ message: 'Another database restore is already in progress.' });
+  }
+
+  let safetyBackup;
+  let foreignKeysDisabled = false;
+  databaseImportInProgress = true;
+  try {
+    const sql = new TextDecoder('utf-8', { fatal: true }).decode(req.file.buffer);
+    const statements = await validateDatabaseBackup(sql);
+    safetyBackup = await createDatabaseBackup(databaseSafetyBackupDirectory);
+
+    for (const statement of statements) {
+      await db.promise().query(statement);
+      if (/^SET\s+FOREIGN_KEY_CHECKS\s*=\s*0$/i.test(statement)) foreignKeysDisabled = true;
+      if (/^SET\s+FOREIGN_KEY_CHECKS\s*=\s*1$/i.test(statement)) foreignKeysDisabled = false;
+    }
+
+    res.json({
+      message: 'Database backup imported successfully.',
+      safety_backup: safetyBackup.filename
+    });
+  } catch (error) {
+    console.error('Failed to import database backup:', error.message);
+    res.status(safetyBackup ? 500 : 400).json({
+      message: safetyBackup
+        ? `Import failed. A safety backup of the previous database was saved as ${safetyBackup.filename}.`
+        : error instanceof TypeError
+          ? 'The selected file is not valid UTF-8 SQL.'
+          : error.message
+    });
+  } finally {
+    if (foreignKeysDisabled) {
+      await db.promise().query('SET FOREIGN_KEY_CHECKS=1').catch((error) => {
+        console.error('Failed to restore foreign key checks after database import:', error.message);
+      });
+    }
+    databaseImportInProgress = false;
+  }
+});
+
+app.get('/api/database-backups/:filename/download', requireAuth, requireBackupAccess, (req, res) => {
+  const { filename } = req.params;
+  if (!/^kalakbay-backup-\d{8}T\d{6}Z-[a-f0-9-]{36}\.sql$/.test(filename)) {
+    return res.status(400).json({ message: 'Invalid database backup filename.' });
+  }
+  res.download(path.join(databaseBackupDirectory, filename), filename, (error) => {
+    if (error && !res.headersSent) {
+      res.status(error.code === 'ENOENT' ? 404 : 500).json({ message: 'Could not download the database backup.' });
+    }
+  });
+});
+
 app.get('/api/notifications', requireAuth, (req, res) => {
-  const behaviorOnly = ['psychometrician', 'user'].includes(req.auth.role);
-  const behaviorFilter = behaviorOnly ? ' AND behavior_related = 1' : '';
   db.query(
-    `SELECT id, message, created_at, read_at FROM notifications WHERE recipient_id = ?${behaviorFilter} ORDER BY created_at DESC LIMIT 50`,
+    'SELECT id, message, created_at, read_at FROM notifications WHERE recipient_id = ? ORDER BY created_at DESC LIMIT 50',
     [req.auth.id],
     (err, rows) => {
       if (err) {
         return res.status(500).json({ message: 'Failed to load notifications.', error: err.message });
       }
       db.query(
-        `SELECT COUNT(*) AS unread_count FROM notifications WHERE recipient_id = ?${behaviorFilter} AND read_at IS NULL`,
+        'SELECT COUNT(*) AS unread_count FROM notifications WHERE recipient_id = ? AND read_at IS NULL',
         [req.auth.id],
         (countError, counts) => {
           if (countError) {
@@ -597,10 +850,8 @@ app.get('/api/notifications', requireAuth, (req, res) => {
 });
 
 app.put('/api/notifications/read', requireAuth, (req, res) => {
-  const behaviorOnly = ['psychometrician', 'user'].includes(req.auth.role);
-  const behaviorFilter = behaviorOnly ? ' AND behavior_related = 1' : '';
   db.query(
-    `UPDATE notifications SET read_at = CURRENT_TIMESTAMP WHERE recipient_id = ? AND read_at IS NULL${behaviorFilter}`,
+    'UPDATE notifications SET read_at = CURRENT_TIMESTAMP WHERE recipient_id = ? AND read_at IS NULL',
     [req.auth.id],
     (err) => {
       if (err) {
@@ -617,11 +868,8 @@ app.delete('/api/notifications/:notificationId', requireAuth, (req, res) => {
     return res.status(400).json({ message: 'Invalid notification ID.' });
   }
 
-  const behaviorFilter = ['psychometrician', 'user'].includes(req.auth.role)
-    ? ' AND behavior_related = 1'
-    : '';
   db.query(
-    `DELETE FROM notifications WHERE id = ? AND recipient_id = ?${behaviorFilter}`,
+    'DELETE FROM notifications WHERE id = ? AND recipient_id = ?',
     [notificationId, req.auth.id],
     (err, result) => {
       if (err) {
@@ -637,26 +885,25 @@ app.delete('/api/notifications/:notificationId', requireAuth, (req, res) => {
 
 app.get('/api/dashboard', requireAuth, requireRoles(['superadmin', 'admin', 'social_worker', 'psychometrician', 'user']), (req, res) => {
   if (['psychometrician', 'user'].includes(req.auth.role)) {
-    db.query('SELECT name, age, home_name, present_picture, behavior_notes FROM clients ORDER BY name', (clientError, rows) => {
+    db.query('SELECT id, name, age, home_name, present_picture FROM clients ORDER BY name', (clientError, rows) => {
       if (clientError) {
         return res.status(500).json({ message: 'Could not load behavior overview.', error: clientError.message });
       }
 
-      const psychometricianClients = rows.map((row) => ({
-        name: row.name,
-        age: row.age === null ? null : Number(row.age),
-        home_name: row.home_name,
-        present_picture: row.present_picture,
-        behavior_notes: row.behavior_notes
-      }));
-      return res.json({
-        role: req.auth.role,
-        totals: {
-          clients: psychometricianClients.length,
-          homes: new Set(psychometricianClients.map((client) => client.home_name)).size
-        },
-        psychometricianClients
-      });
+        const psychometricianClients = rows.map((row) => ({
+          name: row.name,
+          age: row.age === null ? null : Number(row.age),
+          home_name: row.home_name,
+          present_picture: row.present_picture
+        }));
+        return res.json({
+          role: req.auth.role,
+          totals: {
+            clients: psychometricianClients.length,
+            homes: new Set(psychometricianClients.map((client) => client.home_name)).size
+          },
+          psychometricianClients
+        });
     });
     return;
   }
@@ -719,7 +966,7 @@ app.get('/api/search/clients', requireAuth, requireRoles(['superadmin', 'admin',
   const searchPattern = `%${name.slice(0, 100)}%`;
   const isPsychometrician = ['psychometrician', 'user'].includes(req.auth.role);
   const sql = isPsychometrician
-    ? 'SELECT name, age, behavior_notes FROM clients WHERE name LIKE ? ORDER BY name LIMIT 10'
+    ? 'SELECT name, age FROM clients WHERE name LIKE ? ORDER BY name LIMIT 10'
     : 'SELECT id, name, age, home_name FROM clients WHERE name LIKE ? ORDER BY name LIMIT 10';
 
   db.query(sql, [searchPattern], (err, rows) => {
@@ -735,7 +982,7 @@ app.get('/api/search/clients', requireAuth, requireRoles(['superadmin', 'admin',
 
 app.get('/api/clients', requireAuth, requireRoles(caseManagementRoles), (req, res) => {
   const { home_name } = req.query;
-  let query = 'SELECT * FROM clients';
+  let query = `SELECT ${clientSelectColumns} FROM clients`;
   const params = [];
 
   if (home_name) {
@@ -754,7 +1001,7 @@ app.get('/api/clients', requireAuth, requireRoles(caseManagementRoles), (req, re
 app.get('/api/clients/:id', requireAuth, requireRoles(caseManagementRoles), (req, res) => {
   const { id } = req.params;
 
-  db.query('SELECT * FROM clients WHERE id = ?', [id], (err, rows) => {
+  db.query(`SELECT ${clientSelectColumns} FROM clients WHERE id = ?`, [id], (err, rows) => {
     if (err) {
       return res.status(500).json({ message: 'Error fetching client', error: err.message });
     }
@@ -1019,6 +1266,10 @@ app.post('/api/clients', requireAuth, requireRoles(caseManagementRoles), uploadC
   if (missing.length > 0) {
     return res.status(400).json({ message: 'Missing required client fields.', missing });
   }
+  const facilityReturnCount = Number(data.facility_return_count ?? 0);
+  if (!Number.isInteger(facilityReturnCount) || facilityReturnCount < 0 || facilityReturnCount > 65535) {
+    return res.status(400).json({ message: 'Facility return count must be a whole number from 0 to 65,535.' });
+  }
 
   const sql = `
     INSERT INTO clients (
@@ -1040,6 +1291,7 @@ app.post('/api/clients', requireAuth, requireRoles(caseManagementRoles), uploadC
       barangay,
       source_of_referral,
       date_admitted,
+      facility_return_count,
       case_category,
       educational_attainment,
       school_last_attended,
@@ -1047,8 +1299,7 @@ app.post('/api/clients', requireAuth, requireRoles(caseManagementRoles), uploadC
       age_when_found,
       date_time_when_found,
       place_where_found,
-      present_whereabouts,
-      behavior_notes
+      present_whereabouts
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
@@ -1071,6 +1322,7 @@ app.post('/api/clients', requireAuth, requireRoles(caseManagementRoles), uploadC
     data.barangay,
     data.source_of_referral,
     data.date_admitted,
+    facilityReturnCount,
     data.case_category,
     data.educational_attainment,
     data.school_last_attended,
@@ -1078,8 +1330,7 @@ app.post('/api/clients', requireAuth, requireRoles(caseManagementRoles), uploadC
     data.age_when_found,
     data.date_time_when_found,
     data.place_where_found,
-    data.present_whereabouts,
-    data.behavior_notes || null
+    data.present_whereabouts
   ];
 
   db.query(sql, values, (err, result) => {
@@ -1088,11 +1339,7 @@ app.post('/api/clients', requireAuth, requireRoles(caseManagementRoles), uploadC
     }
 
     const reportHome = careHomeNames.includes(data.home_name) ? data.home_name : 'a care home';
-    const hasBehaviorNotes = Boolean(String(data.behavior_notes || "").trim());
-    const message = hasBehaviorNotes
-      ? `A client was added in ${reportHome}. Behavior notes were recorded.`
-      : `A client was added in ${reportHome}.`;
-    notifyAllUsers(req.auth.id, message, hasBehaviorNotes);
+    notifyAllUsers(req.auth.id, `A client was added in ${reportHome}.`);
     res.status(201).json({
       message: 'Client record created successfully.',
       id: result.insertId
@@ -1106,6 +1353,10 @@ app.put('/api/clients/:id', requireAuth, requireRoles(caseManagementRoles), uplo
   const nameParts = getClientNameParts(data);
   if (!nameParts.firstName || !nameParts.lastName || nameParts.middleInitial.length > 30) {
     return res.status(400).json({ message: 'First name and last name are required; middle initial must be 30 characters or fewer.' });
+  }
+  const facilityReturnCount = Number(data.facility_return_count ?? 0);
+  if (!Number.isInteger(facilityReturnCount) || facilityReturnCount < 0 || facilityReturnCount > 65535) {
+    return res.status(400).json({ message: 'Facility return count must be a whole number from 0 to 65,535.' });
   }
 
   const sql = `
@@ -1128,6 +1379,7 @@ app.put('/api/clients/:id', requireAuth, requireRoles(caseManagementRoles), uplo
       barangay = ?,
       source_of_referral = ?,
       date_admitted = ?,
+      facility_return_count = ?,
       case_category = ?,
       educational_attainment = ?,
       school_last_attended = ?,
@@ -1135,8 +1387,7 @@ app.put('/api/clients/:id', requireAuth, requireRoles(caseManagementRoles), uplo
       age_when_found = ?,
       date_time_when_found = ?,
       place_where_found = ?,
-      present_whereabouts = ?,
-      behavior_notes = ?
+      present_whereabouts = ?
     WHERE id = ?
   `;
 
@@ -1159,6 +1410,7 @@ app.put('/api/clients/:id', requireAuth, requireRoles(caseManagementRoles), uplo
     data.barangay,
     data.source_of_referral,
     data.date_admitted,
+    facilityReturnCount,
     data.case_category,
     data.educational_attainment,
     data.school_last_attended,
@@ -1166,33 +1418,20 @@ app.put('/api/clients/:id', requireAuth, requireRoles(caseManagementRoles), uplo
     data.age_when_found,
     data.date_time_when_found,
     data.place_where_found,
-    data.present_whereabouts,
-    data.behavior_notes || null,
     id
   ];
 
-  db.query('SELECT behavior_notes FROM clients WHERE id = ?', [id], (lookupError, existingClients) => {
-    if (lookupError) {
-      return res.status(500).json({ message: 'Could not check the existing client record.', error: lookupError.message });
+  db.query(sql, values, (err, result) => {
+    if (err) {
+      return res.status(500).json({ message: 'Failed to update client record.', error: err.message });
     }
-    if (!existingClients.length) {
+    if (!result.affectedRows) {
       return res.status(404).json({ message: 'Client not found.' });
     }
 
-    const previousBehaviorNotes = String(existingClients[0].behavior_notes || '').trim();
-    db.query(sql, values, (err, result) => {
-      if (err) {
-        return res.status(500).json({ message: 'Failed to update client record.', error: err.message });
-      }
-
-      const reportHome = careHomeNames.includes(data.home_name) ? data.home_name : 'a care home';
-      const behaviorChanged = previousBehaviorNotes !== String(data.behavior_notes || '').trim();
-      const message = behaviorChanged
-        ? `Behavior notes were updated for a client in ${reportHome}.`
-        : `A client record was updated in ${reportHome}.`;
-      notifyAllUsers(req.auth.id, message, behaviorChanged);
-      res.json({ message: 'Client updated successfully.' });
-    });
+    const reportHome = careHomeNames.includes(data.home_name) ? data.home_name : 'a care home';
+    notifyAllUsers(req.auth.id, `A client record was updated in ${reportHome}.`);
+    res.json({ message: 'Client updated successfully.' });
   });
 });
 
@@ -1609,6 +1848,66 @@ app.delete('/api/users/:id', requireAuth, requireSuperadmin, (req, res) => {
       }
       res.json({ message: 'User account deleted successfully.' });
     });
+  });
+});
+
+const assistantRateLimits = new Map();
+const createLocalModelPrompt = (question) => {
+  return `You are Kalakbay AI, a helpful English and Filipino assistant. Answer the user's question clearly and directly. You may answer general questions, but do not diagnose a child or make clinical decisions. If you are unsure, say so instead of inventing facts.\n\nUser question: ${question}`;
+};
+
+const askLocalModel = async (question) => {
+  if (process.env.LOCAL_LLM_ENABLED !== 'true') return null;
+  const baseUrl = String(process.env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/$/, '');
+  const model = String(process.env.OLLAMA_MODEL || 'qwen2.5:3b').trim();
+  try {
+    const response = await fetch(`${baseUrl}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        prompt: createLocalModelPrompt(question),
+        stream: false,
+        options: { temperature: 0.2, num_ctx: 2048 }
+      }),
+      signal: AbortSignal.timeout(30000)
+    });
+    if (!response.ok) return null;
+    const result = await response.json();
+    return String(result.response || '').trim() || null;
+  } catch {
+    return null;
+  }
+};
+
+app.post('/api/assistant/chat', requireAuth, requireRoles(['superadmin', 'admin', 'social_worker', 'psychometrician', 'user']), async (req, res) => {
+  const message = String(req.body.message || '').trim();
+  if (message.length < 2 || message.length > 1000) {
+    return res.status(400).json({ message: 'Enter a question between 2 and 1,000 characters.' });
+  }
+
+  const now = Date.now();
+  const accountId = Number(req.auth.id);
+  const usage = assistantRateLimits.get(accountId);
+  if (usage && usage.resetAt > now && usage.count >= 20) {
+    return res.status(429).json({ message: 'Chat limit reached. Please wait a minute before sending another question.' });
+  }
+  assistantRateLimits.set(accountId, usage && usage.resetAt > now
+    ? { count: usage.count + 1, resetAt: usage.resetAt }
+    : { count: 1, resetAt: now + 60_000 });
+
+  const localModelReply = await askLocalModel(message);
+  if (localModelReply) {
+    return res.json({
+      reply: localModelReply,
+      source: null,
+      model: 'local'
+    });
+  }
+  res.json({
+    reply: 'Hindi makuha ang local AI model ngayon. Siguraduhing tumatakbo ang Ollama at naka-install ang napiling model.',
+    source: null,
+    model: 'unavailable'
   });
 });
 

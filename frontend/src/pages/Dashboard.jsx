@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Building2, Users, UserRoundCog, BriefcaseBusiness, BarChart3, ClipboardList } from "lucide-react";
+import { Building2, Users, UserRoundCog, BriefcaseBusiness, BarChart3 } from "lucide-react";
 import StatCard from "../components/StatCard.jsx";
 import api from "../services/api.js";
 
@@ -77,8 +77,8 @@ export default function Dashboard() {
         <p className="mt-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-[#7f8992]">
           {isSuperadmin
             ? "Live system and staff account overview"
-            : isPsychometrician
-              ? "Anonymized aggregate case overview"
+              : isPsychometrician
+                ? "Client and behavior-note overview"
               : "Live home and client overview"}
         </p>
       </section>
@@ -89,7 +89,7 @@ export default function Dashboard() {
         <p className="rounded-lg border border-[#e3e6e9] bg-white p-6 text-sm text-muted">Loading live dashboard data...</p>
       ) : summary ? (
         <>
-          <section className={`grid grid-cols-2 gap-4 ${stats.length === 3 ? "lg:grid-cols-3" : "lg:grid-cols-2"}`}>
+          <section className={`grid grid-cols-2 gap-4 ${stats.length >= 4 ? "lg:grid-cols-3 xl:grid-cols-5" : stats.length === 3 ? "lg:grid-cols-3" : "lg:grid-cols-2"}`}>
             {stats.map((stat) => <StatCard key={stat.label} {...stat} />)}
           </section>
 
@@ -112,13 +112,13 @@ export default function Dashboard() {
 
           <section className="rounded-lg border border-[#e3e6e9] bg-white p-5 shadow-[0_1px_2px_rgba(22,28,33,0.04)]">
             <div className="mb-4 flex items-center gap-3 border-b border-ink/5 pb-4">
-              {isPsychometrician ? <ClipboardList size={19} className="text-primary" /> : <BarChart3 size={19} className="text-primary" />}
+              <BarChart3 size={19} className="text-primary" />
               <div>
                 <h3 className="font-display text-lg font-bold text-ink900">
-                  {isPsychometrician ? "Clients by home" : "Client Records of Home Cares"}
+                  {isPsychometrician ? "Client records" : "Client Records of Home Cares"}
                 </h3>
                 <p className="text-sm text-muted">
-                  {isPsychometrician ? "Client name, age, home, and behavior notes." : "Counts are read directly from current database records."}
+                  {isPsychometrician ? "Client name, age, and home." : "Counts are read directly from current database records."}
                 </p>
               </div>
             </div>
@@ -128,7 +128,7 @@ export default function Dashboard() {
               ) : (
                 <div className="divide-y divide-ink/5">
                   {summary.psychometricianClients.map((client, index) => (
-                    <article key={`${client.name}-${client.age}-${index}`} className="py-4">
+                    <article key={client.id || `${client.name}-${client.age}-${index}`} className="py-4">
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="flex min-w-0 items-center gap-3">
                           {client.present_picture ? (
@@ -145,9 +145,6 @@ export default function Dashboard() {
                           <span className="rounded-md bg-primary-light px-2.5 py-1 text-xs font-semibold text-primary-dark">{client.home_name}</span>
                         </div>
                       </div>
-                      <p className="ml-[52px] mt-2 whitespace-pre-wrap text-sm leading-relaxed text-ink/75">
-                        {client.behavior_notes?.trim() || "No behavior notes recorded."}
-                      </p>
                     </article>
                   ))}
                 </div>

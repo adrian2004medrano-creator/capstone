@@ -5,6 +5,7 @@ import {
   ShieldCheck,
   X,
   Building2,
+  Database,
 } from "lucide-react";
 
 const navItems = [
@@ -15,6 +16,7 @@ const navItems = [
   { section: "Care homes", to: "/aged-home", label: "Home for the Aged", icon: Building2 },
   { section: "Care homes", to: "/kamada", label: "Kamada", icon: House },
   { section: "Administration", to: "/admin", label: "Admin Management", icon: ShieldCheck },
+  { section: "Administration", to: "/database-backups", label: "Backup Database", icon: Database },
 ];
 
 export default function Sidebar({ isOpen, onClose }) {
@@ -22,6 +24,7 @@ export default function Sidebar({ isOpen, onClose }) {
   const isPsychometrician = role === "psychometrician" || role === "user";
   const visibleNavItems = navItems.filter(({ to }) => {
     if (to === "/admin") return role === "superadmin";
+    if (to === "/database-backups") return ["superadmin", "admin", "social_worker"].includes(role);
     if (isPsychometrician) return to === "/dashboard";
     return true;
   });

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Plus, Pencil, Trash2, Eye, X, FileText, Upload, Download } from "lucide-react";
+import * as XLSX from "xlsx";
 import api from "../services/api.js";
 
 const INITIAL_FORM = {
@@ -21,6 +22,7 @@ const INITIAL_FORM = {
   barangay: "",
   source_of_referral: "",
   date_admitted: "",
+  facility_return_count: 0,
   case_category: "",
   educational_attainment: "",
   school_last_attended: "",
@@ -29,7 +31,6 @@ const INITIAL_FORM = {
   date_time_when_found: "",
   place_where_found: "",
   present_whereabouts: "",
-  behavior_notes: "",
 };
 const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api").replace(/\/api\/?$/, "");
 const formatFileSize = (bytes) => {
@@ -40,17 +41,51 @@ const formatFileSize = (bytes) => {
 
 const imageUrl = (value) => value?.startsWith("http") ? value : `${API_ORIGIN}${value}`;
 const clientFullName = (client) => [client.first_name, client.middle_initial, client.last_name].filter(Boolean).join(" ") || client.name;
-const clientFormValues = (client, homeName) => ({
-  ...INITIAL_FORM,
-  ...client,
-  home_name: homeName,
-  middle_initial: client.middle_initial ?? "",
-  age: client.age ?? "",
-  age_when_found: client.age_when_found ?? "",
-  birthdate: client.birthdate ? String(client.birthdate).slice(0, 10) : "",
-  date_admitted: client.date_admitted ? String(client.date_admitted).slice(0, 10) : "",
-  date_time_when_found: client.date_time_when_found ? String(client.date_time_when_found).replace(" ", "T").slice(0, 16) : "",
-});
+const CLIENT_EXPORT_COLUMNS = [
+  ["Client ID", "id"],
+  ["Home", "home_name"],
+  ["First Name", "first_name"],
+  ["Middle Initial", "middle_initial"],
+  ["Last Name", "last_name"],
+  ["Full Name", "name"],
+  ["Age", "age"],
+  ["Sex", "sex"],
+  ["Civil Status", "civil_status"],
+  ["Religion", "religion"],
+  ["Occupation / Income", "occupation_income"],
+  ["Birthdate", "birthdate"],
+  ["Birthplace", "birthplace"],
+  ["City Address", "city_address"],
+  ["Barangay", "barangay"],
+  ["Source of Referral", "source_of_referral"],
+  ["Date Admitted", "date_admitted"],
+  ["Times Returned to Facility", "facility_return_count"],
+  ["Case Category", "case_category"],
+  ["Educational Attainment", "educational_attainment"],
+  ["School Last Attended", "school_last_attended"],
+  ["Grade Level", "grade_level"],
+  ["Age When Found", "age_when_found"],
+  ["Date & Time When Found", "date_time_when_found"],
+  ["Place Where Found", "place_where_found"],
+  ["Present Whereabouts", "present_whereabouts"],
+  ["Past Picture", "past_picture"],
+  ["Present Picture", "present_picture"],
+];
+const clientFormValues = (client, homeName) => {
+  const values = {
+    ...INITIAL_FORM,
+    ...client,
+    home_name: homeName,
+    middle_initial: client.middle_initial ?? "",
+    age: client.age ?? "",
+    age_when_found: client.age_when_found ?? "",
+    facility_return_count: client.facility_return_count ?? 0,
+    birthdate: client.birthdate ? String(client.birthdate).slice(0, 10) : "",
+    date_admitted: client.date_admitted ? String(client.date_admitted).slice(0, 10) : "",
+    date_time_when_found: client.date_time_when_found ? String(client.date_time_when_found).replace(" ", "T").slice(0, 16) : "",
+  };
+  return values;
+};
 
 export default function ClientHomePage({ homeName }) {
   const location = useLocation();
@@ -201,6 +236,17 @@ export default function ClientHomePage({ homeName }) {
     }
   };
 
+  const handleExportClients = () => {
+    const rows = clients.map((client) => Object.fromEntries(
+      CLIENT_EXPORT_COLUMNS.map(([label, field]) => [label, field === "name" ? clientFullName(client) : client[field] ?? ""])
+    ));
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    worksheet["!cols"] = CLIENT_EXPORT_COLUMNS.map(([label]) => ({ wch: Math.max(label.length + 2, 18) }));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Clients");
+    XLSX.writeFile(workbook, `${homeName.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "")}-clients.xlsx`);
+  };
+
   const handleReportUpload = async (event) => {
     event.preventDefault();
     if (!reportFiles.length) return;
@@ -265,15 +311,27 @@ export default function ClientHomePage({ homeName }) {
           <h2 className="font-display text-2xl font-bold text-ink900">{homeName}</h2>
         </div>
 
-        <button
-          type="button"
-          hidden={activeView !== "clients"}
-          onClick={() => setShowForm(true)}
-          className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark"
-        >
-          <Plus size={16} />
-          Add Client
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            hidden={activeView !== "clients"}
+            onClick={handleExportClients}
+            disabled={loading || !clients.length}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-primary px-4 py-2.5 text-sm font-semibold text-primary transition hover:bg-primary-light disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Download size={16} />
+            Export Excel
+          </button>
+          <button
+            type="button"
+            hidden={activeView !== "clients"}
+            onClick={() => setShowForm(true)}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark"
+          >
+            <Plus size={16} />
+            Add Client
+          </button>
+        </div>
       </div>
 
       <div role="tablist" aria-label={`${homeName} sections`} className="flex gap-5 border-b border-ink/10">
@@ -322,6 +380,7 @@ export default function ClientHomePage({ homeName }) {
                 <tr>
                   <th className="px-3 py-3">Name</th>
                   <th className="px-3 py-3">Age</th>
+                  <th className="px-3 py-3">Facility Returns</th>
                   <th className="px-3 py-3">Sex</th>
                   <th className="px-3 py-3">Barangay</th>
                   <th className="px-3 py-3">Case Category</th>
@@ -333,6 +392,7 @@ export default function ClientHomePage({ homeName }) {
                   <tr key={client.id} className="hover:bg-ink/[0.02]">
                     <td className="px-3 py-3 font-medium text-ink900">{clientFullName(client)}</td>
                     <td className="px-3 py-3">{client.age ?? "-"}</td>
+                    <td className="px-3 py-3">{client.facility_return_count ?? 0}</td>
                     <td className="px-3 py-3">{client.sex ?? "-"}</td>
                     <td className="px-3 py-3">{client.barangay ?? "-"}</td>
                     <td className="px-3 py-3">{client.case_category ?? "-"}</td>
@@ -532,13 +592,13 @@ export default function ClientHomePage({ homeName }) {
               </label>
 
               <label className="space-y-1">
-                <span className="text-sm font-medium text-ink900">Case Category</span>
-                <input name="case_category" value={form.case_category} onChange={handleChange} className="w-full rounded-lg border border-ink/10 bg-surface px-3 py-2.5 outline-none focus:border-primary" />
+                <span className="text-sm font-medium text-ink900">Times Returned to Facility</span>
+                <input name="facility_return_count" type="number" min="0" max="65535" step="1" value={form.facility_return_count} onChange={handleChange} className="w-full rounded-lg border border-ink/10 bg-surface px-3 py-2.5 outline-none focus:border-primary" />
               </label>
 
-              <label className="space-y-1 md:col-span-2">
-                <span className="text-sm font-medium text-ink900">Behavior Notes (Optional)</span>
-                <textarea name="behavior_notes" value={form.behavior_notes} onChange={handleChange} rows={4} maxLength={10000} className="w-full rounded-lg border border-ink/10 bg-surface px-3 py-2.5 outline-none focus:border-primary" />
+              <label className="space-y-1">
+                <span className="text-sm font-medium text-ink900">Case Category</span>
+                <input name="case_category" value={form.case_category} onChange={handleChange} className="w-full rounded-lg border border-ink/10 bg-surface px-3 py-2.5 outline-none focus:border-primary" />
               </label>
 
               <label className="space-y-1">

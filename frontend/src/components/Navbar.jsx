@@ -127,7 +127,7 @@ export default function Navbar({ onToggleSidebar }) {
     };
 
     refreshNotifications();
-    const intervalId = window.setInterval(refreshNotifications, 30000);
+    const intervalId = window.setInterval(refreshNotifications, 5000);
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
@@ -205,6 +205,20 @@ export default function Navbar({ onToggleSidebar }) {
       setNotificationsError(err?.response?.data?.message || "Could not delete notification.");
     }
   };
+
+  const handleNotificationOpen = (notification) => {
+    setNotificationsOpen(false);
+    if (notification.message.startsWith("New private message")) {
+      navigate("/team-chat", { state: { chatMode: "private", recipientId: notification.actor_id } });
+    } else {
+      navigate("/team-chat");
+    }
+  };
+
+  const isChatNotification = (notification) => (
+    notification.message.startsWith("New team chat message")
+    || notification.message.startsWith("New private message")
+  );
 
   return (
     <header className="sticky top-0 z-20 flex min-h-[88px] items-center justify-between gap-3 border-b border-[#e2e5e8] bg-white px-3 sm:px-6 lg:px-9">
@@ -315,7 +329,13 @@ export default function Navbar({ onToggleSidebar }) {
                       <li key={notification.id} className={`flex items-start gap-3 px-4 py-3 ${notification.read_at ? "bg-white" : "bg-[#f7f9fa]"}`}>
                         <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${notification.read_at ? "bg-transparent" : "bg-risk"}`} />
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm leading-snug text-[#343a40]">{notification.message}</p>
+                          {isChatNotification(notification) ? (
+                            <button type="button" onClick={() => handleNotificationOpen(notification)} className="text-left text-sm leading-snug text-[#343a40] hover:text-primary">
+                              {notification.message}
+                            </button>
+                          ) : (
+                            <p className="text-sm leading-snug text-[#343a40]">{notification.message}</p>
+                          )}
                           <p className="mt-1 text-xs text-[#88919a]">{new Date(notification.created_at).toLocaleString()}</p>
                         </div>
                         <button

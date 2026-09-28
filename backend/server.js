@@ -73,6 +73,7 @@ const requireRoles = (roles) => (req, res, next) => {
   next();
 };
 const requireBackupAccess = requireRoles(['superadmin', 'admin', 'social_worker']);
+const teamChatRoles = ['superadmin', 'admin', 'social_worker', 'psychometrician', 'user'];
 const caseManagementRoles = ['superadmin', 'admin', 'social_worker'];
 
 const uploadDirectory = path.join(__dirname, 'uploads');
@@ -362,6 +363,24 @@ const notifyAllUsers = (actorId, message) => {
   );
 };
 
+const notifyChatUsers = (actorId, message, recipientId = null, onComplete = () => {}) => {
+  const recipientFilter = recipientId === null
+    ? "id <> ? AND role IN ('superadmin', 'admin', 'social_worker', 'psychometrician', 'user')"
+    : "id = ? AND id <> ? AND role IN ('superadmin', 'admin', 'social_worker', 'psychometrician', 'user')";
+  const values = recipientId === null
+    ? [actorId, message, actorId]
+    : [actorId, message, recipientId, actorId];
+  db.query(
+    `INSERT INTO notifications (recipient_id, actor_id, message)
+     SELECT id, ?, ? FROM users WHERE ${recipientFilter}`,
+    values,
+    (error) => {
+      if (error) console.error('Failed to create chat notification:', error.message);
+      onComplete(error);
+    }
+  );
+};
+
 const createPasswordResetCodesTable = () => {
   db.query(`
     CREATE TABLE IF NOT EXISTS password_reset_codes (
@@ -607,6 +626,102 @@ const createNotificationsTable = () => {
   });
 };
 
+const createTeamChatTable = () => {
+  db.query(`
+    CREATE TABLE IF NOT EXISTS team_chat_messages (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      sender_id INT NOT NULL,
+      message VARCHAR(2000) NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      deleted_at DATETIME NULL,
+      INDEX idx_team_chat_sender (sender_id),
+      CONSTRAINT fk_team_chat_sender
+        FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `, (error) => {
+    if (error) {
+      console.error('Failed to create team chat table:', error.message);
+      process.exit(1);
+    }
+    console.log('Team chat table is ready.');
+      ensureChatColumn('team_chat_messages', 'deleted_at', 'created_at');
+  });
+};
+
+const createTeamChatClearTable = () => {
+  db.query(`
+    CREATE TABLE IF NOT EXISTS team_chat_conversation_clears (
+      user_id INT PRIMARY KEY,
+      cleared_through_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
+      cleared_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT fk_team_chat_clear_user
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `, (error) => {
+    if (error) {
+      console.error('Failed to create team chat clear table:', error.message);
+      process.exit(1);
+    }
+    console.log('Team chat conversation clear table is ready.');
+  });
+};
+
+const createPrivateChatTable = () => {
+  db.query(`
+    CREATE TABLE IF NOT EXISTS private_chat_messages (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      sender_id INT NOT NULL,
+      recipient_id INT NOT NULL,
+      message VARCHAR(2000) NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      read_at DATETIME NULL,
+      deleted_at DATETIME NULL,
+      INDEX idx_private_chat_sender_recipient (sender_id, recipient_id, id),
+      INDEX idx_private_chat_recipient_sender (recipient_id, sender_id, id),
+      CONSTRAINT fk_private_chat_sender
+        FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+      CONSTRAINT fk_private_chat_recipient
+        FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE
+    )
+  `, (error) => {
+    if (error) {
+      console.error('Failed to create private chat table:', error.message);
+      process.exit(1);
+    }
+    console.log('Private chat table is ready.');
+      ensureChatColumn('private_chat_messages', 'deleted_at', 'created_at', () => {
+        ensureChatColumn('private_chat_messages', 'sender_hidden_at', 'deleted_at', () => {
+          ensureChatColumn('private_chat_messages', 'recipient_hidden_at', 'sender_hidden_at');
+        });
+      });
+  });
+};
+
+const ensureChatColumn = (tableName, columnName, afterColumn, onComplete = () => {}) => {
+  const escapedTableName = mysql.escapeId(tableName);
+  const escapedColumnName = mysql.escapeId(columnName);
+  const escapedAfterColumn = mysql.escapeId(afterColumn);
+  db.query(`SHOW COLUMNS FROM ${escapedTableName} LIKE ?`, [columnName], (lookupError, columns) => {
+    if (lookupError) {
+      console.error(`Failed to inspect ${tableName}:`, lookupError.message);
+      process.exit(1);
+      return;
+    }
+    if (columns.length) {
+      onComplete();
+      return;
+    }
+    db.query(`ALTER TABLE ${escapedTableName} ADD COLUMN ${escapedColumnName} DATETIME NULL AFTER ${escapedAfterColumn}`, (migrationError) => {
+      if (migrationError) {
+        console.error(`Failed to add ${tableName}.${columnName}:`, migrationError.message);
+        process.exit(1);
+        return;
+      }
+      onComplete();
+    });
+  });
+};
+
 const createClientTable = () => {
   const sql = `
     CREATE TABLE IF NOT EXISTS clients (
@@ -730,6 +845,9 @@ db.connect((err) => {
   createClientTable();
   createHomeReportsTable();
   createNotificationsTable();
+  createTeamChatTable();
+  createTeamChatClearTable();
+  createPrivateChatTable();
 });
 
 app.get('/api/health', (req, res) => {
@@ -829,7 +947,7 @@ app.get('/api/database-backups/:filename/download', requireAuth, requireBackupAc
 
 app.get('/api/notifications', requireAuth, (req, res) => {
   db.query(
-    'SELECT id, message, created_at, read_at FROM notifications WHERE recipient_id = ? ORDER BY created_at DESC LIMIT 50',
+    'SELECT id, actor_id, message, created_at, read_at FROM notifications WHERE recipient_id = ? ORDER BY created_at DESC LIMIT 50',
     [req.auth.id],
     (err, rows) => {
       if (err) {
@@ -845,6 +963,253 @@ app.get('/api/notifications', requireAuth, (req, res) => {
           res.json({ notifications: rows, unread_count: Number(counts[0].unread_count) });
         }
       );
+    }
+  );
+});
+
+app.get('/api/team-chat/messages', requireAuth, requireRoles(teamChatRoles), (req, res) => {
+  const afterId = req.query.after_id === undefined ? null : Number(req.query.after_id);
+  if (afterId !== null && (!Number.isSafeInteger(afterId) || afterId < 0)) {
+    return res.status(400).json({ message: 'Invalid chat message cursor.' });
+  }
+
+  const query = `
+    SELECT messages.id, messages.sender_id, messages.message, messages.created_at, messages.deleted_at,
+           users.first_name, users.middle_initial, users.last_name, users.role
+    FROM team_chat_messages AS messages
+    INNER JOIN users ON users.id = messages.sender_id
+    WHERE messages.id > COALESCE((
+      SELECT cleared_through_id FROM team_chat_conversation_clears WHERE user_id = ?
+    ), 0)
+    ${afterId === null ? '' : 'AND messages.id > ?'}
+    ORDER BY messages.id ${afterId === null ? 'DESC' : 'ASC'}
+    LIMIT 100
+  `;
+  const params = afterId === null ? [req.auth.id] : [req.auth.id, afterId];
+  db.query(query, params, (error, rows) => {
+    if (error) {
+      return res.status(500).json({ message: 'Could not load team chat messages.' });
+    }
+    res.json({ messages: afterId === null ? rows.reverse() : rows });
+  });
+});
+
+app.delete('/api/team-chat/conversation', requireAuth, requireRoles(teamChatRoles), (req, res) => {
+  db.query('SELECT COALESCE(MAX(id), 0) AS last_message_id FROM team_chat_messages', (lookupError, rows) => {
+    if (lookupError) return res.status(500).json({ message: 'Could not find the latest team chat message.' });
+    const lastMessageId = Number(rows[0].last_message_id);
+    db.query(
+      `INSERT INTO team_chat_conversation_clears (user_id, cleared_through_id, cleared_at)
+       VALUES (?, ?, CURRENT_TIMESTAMP)
+       ON DUPLICATE KEY UPDATE cleared_through_id = GREATEST(cleared_through_id, ?), cleared_at = CURRENT_TIMESTAMP`,
+      [req.auth.id, lastMessageId, lastMessageId],
+      (clearError) => {
+        if (clearError) return res.status(500).json({ message: 'Could not delete the team conversation from your inbox.' });
+        db.query(
+          "DELETE FROM notifications WHERE recipient_id = ? AND message LIKE 'New team chat message from %'",
+          [req.auth.id],
+          (notificationError) => {
+            if (notificationError) console.error('Failed to clear team chat notifications:', notificationError.message);
+            res.json({ message: 'Team conversation removed from your inbox.' });
+          }
+        );
+      }
+    );
+  });
+});
+
+app.post('/api/team-chat/messages', requireAuth, requireRoles(teamChatRoles), (req, res) => {
+  const message = String(req.body.message || '').trim();
+  if (!message || message.length > 2000) {
+    return res.status(400).json({ message: 'Enter a message between 1 and 2,000 characters.' });
+  }
+
+  db.query('INSERT INTO team_chat_messages (sender_id, message) VALUES (?, ?)', [req.auth.id, message], (insertError, result) => {
+    if (insertError) {
+      return res.status(500).json({ message: 'Could not send the team chat message.' });
+    }
+
+    db.query(
+      `SELECT messages.id, messages.sender_id, messages.message, messages.created_at, messages.deleted_at,
+              users.first_name, users.middle_initial, users.last_name, users.role
+       FROM team_chat_messages AS messages
+       INNER JOIN users ON users.id = messages.sender_id
+       WHERE messages.id = ?`,
+      [result.insertId],
+      (lookupError, rows) => {
+        if (lookupError || !rows[0]) {
+          return res.status(500).json({ message: 'Message was sent but could not be loaded.' });
+        }
+        const senderName = [rows[0].first_name, rows[0].last_name].filter(Boolean).join(' ') || 'A team member';
+        notifyChatUsers(req.auth.id, `New team chat message from ${senderName}.`, null, () => {
+          res.status(201).json({ message: rows[0] });
+        });
+      }
+    );
+  });
+});
+
+app.delete('/api/team-chat/messages/:messageId', requireAuth, requireRoles(teamChatRoles), (req, res) => {
+  const messageId = Number(req.params.messageId);
+  if (!Number.isSafeInteger(messageId) || messageId <= 0) {
+    return res.status(400).json({ message: 'Invalid team chat message ID.' });
+  }
+
+  db.query(
+    'UPDATE team_chat_messages SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND sender_id = ? AND deleted_at IS NULL',
+    [messageId, req.auth.id],
+    (error, result) => {
+      if (error) return res.status(500).json({ message: 'Could not delete the team chat message.' });
+      if (!result.affectedRows) return res.status(404).json({ message: 'Message not found or you cannot delete it.' });
+      res.json({ message: 'Team chat message deleted.' });
+    }
+  );
+});
+
+app.get('/api/team-chat/users', requireAuth, requireRoles(teamChatRoles), (req, res) => {
+  db.query(
+    `SELECT id, first_name, middle_initial, last_name, role
+     FROM users WHERE id <> ? ORDER BY first_name, last_name`,
+    [req.auth.id],
+    (error, users) => {
+      if (error) return res.status(500).json({ message: 'Could not load chat recipients.' });
+      res.json({ users });
+    }
+  );
+});
+
+app.get('/api/team-chat/private/:userId/messages', requireAuth, requireRoles(teamChatRoles), (req, res) => {
+  const recipientId = Number(req.params.userId);
+  const afterId = req.query.after_id === undefined ? null : Number(req.query.after_id);
+  if (!Number.isSafeInteger(recipientId) || recipientId <= 0 || recipientId === Number(req.auth.id)) {
+    return res.status(400).json({ message: 'Choose a valid chat recipient.' });
+  }
+  if (afterId !== null && (!Number.isSafeInteger(afterId) || afterId < 0)) {
+    return res.status(400).json({ message: 'Invalid chat message cursor.' });
+  }
+
+  db.query(
+    'SELECT id FROM users WHERE id = ?',
+    [recipientId],
+    (userError, users) => {
+      if (userError) return res.status(500).json({ message: 'Could not verify the chat recipient.' });
+      if (!users.length) return res.status(404).json({ message: 'Chat recipient not found.' });
+
+      db.query(
+        'UPDATE private_chat_messages SET read_at = CURRENT_TIMESTAMP WHERE sender_id = ? AND recipient_id = ? AND read_at IS NULL AND recipient_hidden_at IS NULL',
+        [recipientId, req.auth.id],
+        (readError) => {
+          if (readError) return res.status(500).json({ message: 'Could not mark private messages as read.' });
+
+          const query = `
+                 SELECT messages.id, messages.sender_id, messages.recipient_id, messages.message,
+                   messages.created_at, messages.read_at, messages.deleted_at,
+                   users.first_name, users.middle_initial, users.last_name, users.role
+            FROM private_chat_messages AS messages
+            INNER JOIN users ON users.id = messages.sender_id
+            WHERE ((messages.sender_id = ? AND messages.recipient_id = ?)
+                   OR (messages.sender_id = ? AND messages.recipient_id = ?))
+              AND ((messages.sender_id = ? AND messages.sender_hidden_at IS NULL)
+                   OR (messages.recipient_id = ? AND messages.recipient_hidden_at IS NULL))
+            ${afterId === null ? '' : 'AND messages.id > ?'}
+            ORDER BY messages.id ${afterId === null ? 'DESC' : 'ASC'}
+            LIMIT 100
+          `;
+          const params = [req.auth.id, recipientId, recipientId, req.auth.id, req.auth.id, req.auth.id];
+          if (afterId !== null) params.push(afterId);
+          db.query(query, params, (messageError, messages) => {
+            if (messageError) return res.status(500).json({ message: 'Could not load private messages.' });
+            res.json({ messages: afterId === null ? messages.reverse() : messages });
+          });
+        }
+      );
+    }
+  );
+});
+
+app.delete('/api/team-chat/private/:userId/conversation', requireAuth, requireRoles(teamChatRoles), (req, res) => {
+  const otherUserId = Number(req.params.userId);
+  if (!Number.isSafeInteger(otherUserId) || otherUserId <= 0 || otherUserId === Number(req.auth.id)) {
+    return res.status(400).json({ message: 'Choose a valid private conversation.' });
+  }
+
+  db.query(
+    `UPDATE private_chat_messages
+     SET sender_hidden_at = CASE WHEN sender_id = ? THEN COALESCE(sender_hidden_at, CURRENT_TIMESTAMP) ELSE sender_hidden_at END,
+         recipient_hidden_at = CASE WHEN recipient_id = ? THEN COALESCE(recipient_hidden_at, CURRENT_TIMESTAMP) ELSE recipient_hidden_at END
+     WHERE ((sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?))
+       AND ((sender_id = ? AND sender_hidden_at IS NULL) OR (recipient_id = ? AND recipient_hidden_at IS NULL))`,
+    [req.auth.id, req.auth.id, req.auth.id, otherUserId, otherUserId, req.auth.id, req.auth.id, req.auth.id],
+    (error, result) => {
+      if (error) return res.status(500).json({ message: 'Could not delete this conversation from your inbox.' });
+      if (!result.affectedRows) return res.status(404).json({ message: 'Conversation not found.' });
+
+      db.query(
+        "DELETE FROM notifications WHERE recipient_id = ? AND actor_id = ? AND message LIKE 'New private message from %'",
+        [req.auth.id, otherUserId],
+        (notificationError) => {
+          if (notificationError) console.error('Failed to clear private chat notifications:', notificationError.message);
+          res.json({ message: 'Conversation removed from your inbox.' });
+        }
+      );
+    }
+  );
+});
+
+app.post('/api/team-chat/private/:userId/messages', requireAuth, requireRoles(teamChatRoles), (req, res) => {
+  const recipientId = Number(req.params.userId);
+  const message = String(req.body.message || '').trim();
+  if (!Number.isSafeInteger(recipientId) || recipientId <= 0 || recipientId === Number(req.auth.id)) {
+    return res.status(400).json({ message: 'Choose a valid chat recipient.' });
+  }
+  if (!message || message.length > 2000) {
+    return res.status(400).json({ message: 'Enter a message between 1 and 2,000 characters.' });
+  }
+
+  db.query('SELECT id FROM users WHERE id = ?', [recipientId], (userError, users) => {
+    if (userError) return res.status(500).json({ message: 'Could not verify the chat recipient.' });
+    if (!users.length) return res.status(404).json({ message: 'Chat recipient not found.' });
+
+    db.query(
+      'INSERT INTO private_chat_messages (sender_id, recipient_id, message) VALUES (?, ?, ?)',
+      [req.auth.id, recipientId, message],
+      (insertError, result) => {
+        if (insertError) return res.status(500).json({ message: 'Could not send the private message.' });
+
+        db.query(
+            `SELECT messages.id, messages.sender_id, messages.recipient_id, messages.message,
+              messages.created_at, messages.read_at, messages.deleted_at,
+                  users.first_name, users.middle_initial, users.last_name, users.role
+           FROM private_chat_messages AS messages
+           INNER JOIN users ON users.id = messages.sender_id
+           WHERE messages.id = ?`,
+          [result.insertId],
+          (lookupError, rows) => {
+            if (lookupError || !rows[0]) return res.status(500).json({ message: 'Message was sent but could not be loaded.' });
+            const senderName = [rows[0].first_name, rows[0].last_name].filter(Boolean).join(' ') || 'A team member';
+            notifyChatUsers(req.auth.id, `New private message from ${senderName}.`, recipientId, () => {
+              res.status(201).json({ message: rows[0] });
+            });
+          }
+        );
+      }
+    );
+  });
+});
+
+app.delete('/api/team-chat/private/messages/:messageId', requireAuth, requireRoles(teamChatRoles), (req, res) => {
+  const messageId = Number(req.params.messageId);
+  if (!Number.isSafeInteger(messageId) || messageId <= 0) {
+    return res.status(400).json({ message: 'Invalid private message ID.' });
+  }
+
+  db.query(
+    'UPDATE private_chat_messages SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND sender_id = ? AND deleted_at IS NULL',
+    [messageId, req.auth.id],
+    (error, result) => {
+      if (error) return res.status(500).json({ message: 'Could not delete the private message.' });
+      if (!result.affectedRows) return res.status(404).json({ message: 'Message not found or you cannot delete it.' });
+      res.json({ message: 'Private message deleted.' });
     }
   );
 });

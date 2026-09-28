@@ -6,10 +6,12 @@ import {
   X,
   Building2,
   Database,
+  MessagesSquare,
 } from "lucide-react";
 
 const navItems = [
   { section: "Workspace", to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { section: "Workspace", to: "/team-chat", label: "Team Chat", icon: MessagesSquare },
   { section: "Care homes", to: "/girls-home", label: "Girls Home", icon: House },
   { section: "Care homes", to: "/boys-home", label: "Boys Home", icon: Building2 },
   { section: "Care homes", to: "/kids-home", label: "Kids Home", icon: House },
@@ -25,7 +27,7 @@ export default function Sidebar({ isOpen, onClose }) {
   const visibleNavItems = navItems.filter(({ to }) => {
     if (to === "/admin") return role === "superadmin";
     if (to === "/database-backups") return ["superadmin", "admin", "social_worker"].includes(role);
-    if (isPsychometrician) return to === "/dashboard";
+    if (isPsychometrician) return to === "/dashboard" || to === "/team-chat";
     return true;
   });
   const navLinkClass = ({ isActive }) =>

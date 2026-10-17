@@ -1,0 +1,67 @@
+[
+  {
+    "ref": "suchintikasarkar/sentiment-analysis-for-mental-health",
+    "title": "Sentiment Analysis for Mental Health",
+    "license": "Database: Open Database, Contents: Database Contents",
+    "url": "https://www.kaggle.com/datasets/suchintikasarkar/sentiment-analysis-for-mental-health",
+    "output": "kaggle-mental-health-statements.csv",
+    "rows": 11500,
+    "categories": {
+      "emotional_distress": 4500,
+      "neutral": 3500,
+      "self_harm": 3500
+    }
+  },
+  {
+    "ref": "payaldhokane/stress-analysis-in-social-media-dataset",
+    "title": "Stress Analysis in Social Media Dataset",
+    "license": "CC0: Public Domain",
+    "url": "https://www.kaggle.com/datasets/payaldhokane/stress-analysis-in-social-media-dataset",
+    "output": "kaggle-dreaddit-subreddits.csv",
+    "rows": 2379,
+    "categories": {
+      "abuse_trauma": 1411,
+      "emotional_distress": 649,
+      "family_instability": 319
+    }
+  },
+  {
+    "ref": "thedevastator/c-ssrs-labeled-suicidality-in-500-anonymized-red",
+    "title": "Suicidality on Reddit ",
+    "license": "CC0: Public Domain",
+    "url": "https://www.kaggle.com/datasets/thedevastator/c-ssrs-labeled-suicidality-in-500-anonymized-red",
+    "output": "kaggle-cssrs-suicidality.csv",
+    "rows": 500,
+    "categories": {
+      "emotional_distress": 99,
+      "self_harm": 293,
+      "neutral": 108
+    }
+  },
+  {
+    "ref": "parulpandey/emotion-dataset",
+    "title": "Emotion Dataset for Emotion Recognition Tasks",
+    "license": "CC0: Public Domain",
+    "url": "https://www.kaggle.com/datasets/parulpandey/emotion-dataset",
+    "output": "kaggle-emotions.csv",
+    "rows": 8719,
+    "categories": {
+      "positive": 2500,
+      "anger_irritability": 2500,
+      "emotional_distress": 3000,
+      "neutral": 719
+    }
+  },
+  {
+    "ref": "andrewmvd/cyberbullying-classification",
+    "title": "Cyberbullying Classification",
+    "license": "Attribution 4.0 International (CC BY 4.0)",
+    "url": "https://www.kaggle.com/datasets/andrewmvd/cyberbullying-classification",
+    "output": "kaggle-cyberbullying.csv",
+    "rows": 5500,
+    "categories": {
+      "violence": 3000,
+      "neutral": 2500
+    }
+  }
+]

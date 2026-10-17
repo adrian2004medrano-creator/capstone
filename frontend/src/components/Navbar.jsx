@@ -221,11 +221,11 @@ export default function Navbar({ onToggleSidebar }) {
   );
 
   return (
-    <header className="sticky top-0 z-20 flex min-h-[88px] items-center justify-between gap-3 border-b border-[#e2e5e8] bg-white px-3 sm:px-6 lg:px-9">
+    <header className="sticky top-0 z-20 flex min-h-[88px] items-center justify-between gap-3 border-b border-[#e1e5e9] bg-white px-3 sm:px-6 lg:px-9">
       <div className="flex min-w-0 items-center gap-2 sm:gap-3">
         <button
           type="button"
-          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#e3e6e9] bg-white text-[#34383c] md:hidden"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#e3e6e9] bg-white text-[#303740] md:hidden"
           onClick={onToggleSidebar}
           aria-label="Toggle sidebar navigation"
         >
@@ -236,8 +236,8 @@ export default function Navbar({ onToggleSidebar }) {
           <img src="/manila-dsw-logo.svg" alt="Department of Social Welfare, City of Manila" className="h-full w-full object-contain" />
         </div>
         <div className="min-w-0">
-          <h1 className="truncate text-[12px] font-semibold leading-tight text-[#22272b] sm:text-[17px]">KALAKBAY AI <span className="font-normal text-[#a4aab0]">|</span> HOME CARE MANAGEMENT SYSTEM</h1>
-          <p className="mt-1 truncate text-[9px] font-medium uppercase tracking-[0.1em] text-[#78818a] sm:text-[11px]">Manila Boys&apos; Town Complex</p>
+          <h1 className="truncate text-[12px] font-semibold leading-tight text-[#20262d] sm:text-[17px]">KALAKBAY AI <span className="font-normal text-[#9fa9b6]">|</span> HOME CARE MANAGEMENT SYSTEM</h1>
+          <p className="mt-1 truncate text-[9px] font-medium uppercase tracking-[0.1em] text-[#708092] sm:text-[11px]">Manila Boys&apos; Town Complex</p>
         </div>
       </div>
 
@@ -309,10 +309,10 @@ export default function Navbar({ onToggleSidebar }) {
             <section id="notifications-panel" aria-label="Notifications" className="absolute right-0 top-full z-50 mt-2 w-80 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border border-[#e3e6e9] bg-white shadow-card sm:w-96">
               <div className="flex items-center justify-between border-b border-[#e3e6e9] px-4 py-3">
                 <div>
-                  <h2 className="text-sm font-semibold text-[#292e33]">Notifications</h2>
-                  <p className="mt-0.5 text-xs text-[#78818a]">Recent system activity</p>
+                  <h2 className="text-sm font-semibold text-[#272e35]">Notifications</h2>
+                  <p className="mt-0.5 text-xs text-[#708092]">Recent system activity</p>
                 </div>
-                <button type="button" onClick={() => setNotificationsOpen(false)} aria-label="Close notifications" className="flex h-8 w-8 items-center justify-center rounded-md text-[#78818a] hover:bg-[#f3f4f5] hover:text-[#30353a]">
+                <button type="button" onClick={() => setNotificationsOpen(false)} aria-label="Close notifications" className="flex h-8 w-8 items-center justify-center rounded-md text-[#708092] hover:bg-[#f2f4f6] hover:text-[#2d343d]">
                   <X size={16} />
                 </button>
               </div>
@@ -320,9 +320,9 @@ export default function Navbar({ onToggleSidebar }) {
               {notificationsError && <p role="alert" className="m-3 rounded-md bg-risk-light px-3 py-2 text-xs text-risk">{notificationsError}</p>}
               <div className="max-h-[min(65vh,26rem)] overflow-y-auto">
                 {notificationsLoading ? (
-                  <p className="px-4 py-8 text-center text-sm text-[#78818a]">Loading notifications...</p>
+                  <p className="px-4 py-8 text-center text-sm text-[#708092]">Loading notifications...</p>
                 ) : notifications.length === 0 ? (
-                  <p className="px-4 py-8 text-center text-sm text-[#78818a]">No notifications yet.</p>
+                  <p className="px-4 py-8 text-center text-sm text-[#708092]">No notifications yet.</p>
                 ) : (
                   <ul className="divide-y divide-[#eef0f2]">
                     {notifications.map((notification) => (
@@ -330,20 +330,20 @@ export default function Navbar({ onToggleSidebar }) {
                         <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${notification.read_at ? "bg-transparent" : "bg-risk"}`} />
                         <div className="min-w-0 flex-1">
                           {isChatNotification(notification) ? (
-                            <button type="button" onClick={() => handleNotificationOpen(notification)} className="text-left text-sm leading-snug text-[#343a40] hover:text-primary">
+                            <button type="button" onClick={() => handleNotificationOpen(notification)} className="text-left text-sm leading-snug text-[#313943] hover:text-primary">
                               {notification.message}
                             </button>
                           ) : (
-                            <p className="text-sm leading-snug text-[#343a40]">{notification.message}</p>
+                            <p className="text-sm leading-snug text-[#313943]">{notification.message}</p>
                           )}
-                          <p className="mt-1 text-xs text-[#88919a]">{new Date(notification.created_at).toLocaleString()}</p>
+                          <p className="mt-1 text-xs text-[#8290a1]">{new Date(notification.created_at).toLocaleString()}</p>
                         </div>
                         <button
                           type="button"
                           onClick={() => handleNotificationDelete(notification)}
                           aria-label={`Delete notification: ${notification.message}`}
                           title="Delete notification"
-                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#88919a] transition-colors hover:bg-risk-light hover:text-risk"
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#8290a1] transition-colors hover:bg-risk-light hover:text-risk"
                         >
                           <Trash2 size={15} />
                         </button>
@@ -361,7 +361,7 @@ export default function Navbar({ onToggleSidebar }) {
           onClick={() => navigate("/profile")}
           aria-label="Open your profile settings"
           title="Edit profile"
-          className="flex min-w-0 items-center gap-2 rounded-md p-1.5 text-left transition-colors hover:bg-[#f3f4f5] focus-visible:outline-offset-1"
+          className="flex min-w-0 items-center gap-2 rounded-md p-1.5 text-left transition-colors hover:bg-[#f2f4f6] focus-visible:outline-offset-1"
         >
           {profileImage ? (
             <img src={profileImage} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
@@ -379,7 +379,7 @@ export default function Navbar({ onToggleSidebar }) {
         <button
           type="button"
           onClick={handleLogout}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-[#747d85] transition-colors hover:bg-[#f3f4f5] hover:text-risk sm:h-10 sm:w-10"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-[#6c7b8d] transition-colors hover:bg-[#f2f4f6] hover:text-risk sm:h-10 sm:w-10"
           title="Log out"
         >
           <LogOut size={17} />
@@ -388,10 +388,10 @@ export default function Navbar({ onToggleSidebar }) {
         <div className="hidden min-w-[142px] items-center gap-3 rounded-[10px] border border-[#e3e6e9] bg-[#fafbfc] px-3.5 py-2 sm:flex">
           <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#22b85a] shadow-[0_0_0_4px_rgba(34,184,90,0.1)]" />
           <div className="leading-tight">
-            <p className="text-sm font-semibold tabular-nums text-[#292e33]">
+            <p className="text-sm font-semibold tabular-nums text-[#272e35]">
               {currentTime.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
             </p>
-            <p className="mt-1 text-[9px] font-medium uppercase tracking-[0.08em] text-[#8a939b]">
+            <p className="mt-1 text-[9px] font-medium uppercase tracking-[0.08em] text-[#8391a2]">
               {currentTime.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "2-digit", year: "numeric" })}
             </p>
           </div>

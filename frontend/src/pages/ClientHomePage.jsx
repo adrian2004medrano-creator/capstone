@@ -90,6 +90,7 @@ const clientFormValues = (client, homeName) => {
 export default function ClientHomePage({ homeName }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const canManageRecords = ["superadmin", "admin"].includes(localStorage.getItem("kalakbay_role"));
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -322,15 +323,17 @@ export default function ClientHomePage({ homeName }) {
             <Download size={16} />
             Export Excel
           </button>
-          <button
-            type="button"
-            hidden={activeView !== "clients"}
-            onClick={() => setShowForm(true)}
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark"
-          >
-            <Plus size={16} />
-            Add Client
-          </button>
+          {canManageRecords && (
+            <button
+              type="button"
+              hidden={activeView !== "clients"}
+              onClick={() => setShowForm(true)}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-dark"
+            >
+              <Plus size={16} />
+              Add Client
+            </button>
+          )}
         </div>
       </div>
 
@@ -405,22 +408,26 @@ export default function ClientHomePage({ homeName }) {
                           <Eye size={14} />
                           View
                         </Link>
-                        <button
-                          type="button"
-                          onClick={() => handleEdit(client)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-ink/10 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink900 hover:border-primary hover:text-primary"
-                        >
-                          <Pencil size={14} />
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(client.id)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-risk/20 bg-risk-light px-2.5 py-1.5 text-xs font-semibold text-risk hover:bg-risk hover:text-white"
-                        >
-                          <Trash2 size={14} />
-                          Delete
-                        </button>
+                        {canManageRecords && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleEdit(client)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-ink/10 bg-white px-2.5 py-1.5 text-xs font-semibold text-ink900 hover:border-primary hover:text-primary"
+                            >
+                              <Pencil size={14} />
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(client.id)}
+                              className="inline-flex items-center gap-1 rounded-lg border border-risk/20 bg-risk-light px-2.5 py-1.5 text-xs font-semibold text-risk hover:bg-risk hover:text-white"
+                            >
+                              <Trash2 size={14} />
+                              Delete
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -437,7 +444,7 @@ export default function ClientHomePage({ homeName }) {
               <h3 className="mt-1 font-display text-lg font-bold text-ink900">
                 {reportType === "monthly" ? "Monthly admissions reports" : "Yearly admissions reports"}
               </h3>
-              <p className="mt-1 text-sm text-muted">Upload and keep the report files for this care home.</p>
+              <p className="mt-1 text-sm text-muted">{canManageRecords ? "Upload and keep the report files for this care home." : "View and download report files for this care home."}</p>
             </div>
             <label className="flex shrink-0 items-center gap-2 text-sm font-medium text-ink900">
               <span>{reportType === "monthly" ? "Month" : "Year"}</span>
@@ -449,24 +456,28 @@ export default function ClientHomePage({ homeName }) {
             </label>
           </div>
 
-          <form onSubmit={handleReportUpload} className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-            <input
-              type="file"
-              multiple
-              onChange={(event) => setReportFiles(Array.from(event.target.files || []))}
-              className="min-w-0 flex-1 rounded-lg border border-ink/10 bg-surface px-3 py-2 text-sm"
-              aria-label={`Choose ${reportType} report files`}
-            />
-            <button
-              type="submit"
-              disabled={!reportFiles.length || reportsUploading}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Upload size={16} />
-              {reportsUploading ? "Uploading..." : `Upload${reportFiles.length ? ` (${reportFiles.length})` : ""}`}
-            </button>
-          </form>
-          <p className="mt-2 text-xs text-muted">You can upload up to 10 files at a time, 20 MB per file.</p>
+          {canManageRecords && (
+            <>
+              <form onSubmit={handleReportUpload} className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+                <input
+                  type="file"
+                  multiple
+                  onChange={(event) => setReportFiles(Array.from(event.target.files || []))}
+                  className="min-w-0 flex-1 rounded-lg border border-ink/10 bg-surface px-3 py-2 text-sm"
+                  aria-label={`Choose ${reportType} report files`}
+                />
+                <button
+                  type="submit"
+                  disabled={!reportFiles.length || reportsUploading}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Upload size={16} />
+                  {reportsUploading ? "Uploading..." : `Upload${reportFiles.length ? ` (${reportFiles.length})` : ""}`}
+                </button>
+              </form>
+              <p className="mt-2 text-xs text-muted">You can upload up to 10 files at a time, 20 MB per file.</p>
+            </>
+          )}
 
           {reportsError && <p role="alert" className="mt-4 rounded-lg border border-risk/20 bg-risk-light px-3 py-2 text-sm text-risk">{reportsError}</p>}
 
@@ -492,9 +503,11 @@ export default function ClientHomePage({ homeName }) {
                       <button type="button" onClick={() => handleReportDownload(report)} className="inline-flex items-center gap-1.5 rounded-lg border border-ink/10 px-3 py-2 text-xs font-semibold text-primary hover:border-primary">
                         <Download size={14} /> Download
                       </button>
-                      <button type="button" onClick={() => handleReportDelete(report)} aria-label={`Delete ${report.original_name}`} className="rounded-lg border border-risk/20 bg-risk-light p-2 text-risk hover:bg-risk hover:text-white">
-                        <Trash2 size={15} />
-                      </button>
+                      {canManageRecords && (
+                        <button type="button" onClick={() => handleReportDelete(report)} aria-label={`Delete ${report.original_name}`} className="rounded-lg border border-risk/20 bg-risk-light p-2 text-risk hover:bg-risk hover:text-white">
+                          <Trash2 size={15} />
+                        </button>
+                      )}
                     </div>
                   </li>
                 ))}

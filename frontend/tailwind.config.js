@@ -5,14 +5,14 @@ export default {
     extend: {
       colors: {
         ink: {
-          DEFAULT: "#183A35",
-          light: "#244B45",
+          DEFAULT: "#1F5E9E",
+          light: "#2B78C2",
         },
-        surface: "#F3F5F2",
+        surface: "#F1F7FD",
         primary: {
-          DEFAULT: "#247768",
-          dark: "#195C50",
-          light: "#E5F1ED",
+          DEFAULT: "#2B7FCB",
+          dark: "#1F65A8",
+          light: "#E3F1FC",
         },
         amber: {
           DEFAULT: "#C58B36",
@@ -26,15 +26,15 @@ export default {
           DEFAULT: "#B77B25",
           light: "#F8F0E2",
         },
-        ink900: "#202B28",
-        muted: "#66736E",
+        ink900: "#17324F",
+        muted: "#5E7691",
       },
       fontFamily: {
         display: ["Sora", "sans-serif"],
         body: ["Inter", "sans-serif"],
       },
       boxShadow: {
-        card: "0 1px 2px rgba(24, 58, 53, 0.04), 0 8px 24px rgba(24, 58, 53, 0.045)",
+        card: "0 1px 2px rgba(31, 94, 158, 0.05), 0 8px 24px rgba(31, 94, 158, 0.06)",
       },
       borderRadius: {
         xl2: "0.875rem",

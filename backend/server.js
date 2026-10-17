@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 require('dotenv').config();
+const registerBehaviorAi = require('./behaviorAi');
 
 const app = express();
 app.use(cors());
@@ -75,6 +76,8 @@ const requireRoles = (roles) => (req, res, next) => {
 const requireBackupAccess = requireRoles(['superadmin', 'admin', 'social_worker']);
 const teamChatRoles = ['superadmin', 'admin', 'social_worker', 'psychometrician', 'user'];
 const caseManagementRoles = ['superadmin', 'admin', 'social_worker'];
+const homeReadRoles = [...caseManagementRoles, 'psychometrician', 'user'];
+const homeWriteRoles = ['superadmin', 'admin'];
 
 const uploadDirectory = path.join(__dirname, 'uploads');
 fs.mkdirSync(uploadDirectory, { recursive: true });
@@ -578,6 +581,10 @@ const createClientDocumentsTable = () => {
       process.exit(1);
     }
     console.log('Client documents table is ready.');
+    behaviorAi.init().catch((error) => {
+      console.error('Failed to initialize behavior AI tables:', error.message);
+      process.exit(1);
+    });
   });
 };
 
@@ -1248,6 +1255,147 @@ app.delete('/api/notifications/:notificationId', requireAuth, (req, res) => {
   );
 });
 
+const percent = (part, total) => (total ? Math.round((part / total) * 1000) / 10 : 0);
+
+const buildAnalyticsInsights = ({ total, byHome, byCategory, bySex, ageGroups, admissionsByMonth, returning, missingReports, period }) => {
+  const insights = [];
+  if (!total) {
+    return [{ level: 'info', text: 'No client records yet, so there is nothing to analyze.' }];
+  }
+
+  const topHome = byHome[0];
+  if (topHome) {
+    insights.push({
+      level: 'info',
+      text: `${topHome.label} has the most clients (${topHome.count}, ${percent(topHome.count, total)}% of all ${total} records).`
+    });
+  }
+
+  const topCategory = byCategory[0];
+  if (topCategory) {
+    insights.push({
+      level: 'info',
+      text: `The most common case category is "${topCategory.label}" with ${topCategory.count} client${topCategory.count === 1 ? '' : 's'} (${percent(topCategory.count, total)}%).`
+    });
+  }
+
+  const minors = ageGroups.filter((group) => group.minor).reduce((sum, group) => sum + group.count, 0);
+  if (minors) {
+    insights.push({ level: 'info', text: `${percent(minors, total)}% of clients are minors (under 18).` });
+  }
+
+  const topSex = bySex[0];
+  if (topSex && bySex.length > 1) {
+    insights.push({ level: 'info', text: `${topSex.label} clients make up ${percent(topSex.count, total)}% of records.` });
+  }
+
+  if (returning.count) {
+    insights.push({
+      level: returning.rate >= 20 ? 'warning' : 'info',
+      text: `${returning.count} client${returning.count === 1 ? ' has' : 's have'} returned to a facility at least once (${returning.rate}%). ${returning.rate >= 20 ? 'This is a notable share and may need follow-up review.' : ''}`.trim()
+    });
+  }
+
+  const recent = admissionsByMonth.slice(-3).reduce((sum, item) => sum + item.count, 0);
+  const previous = admissionsByMonth.slice(-6, -3).reduce((sum, item) => sum + item.count, 0);
+  if (recent || previous) {
+    if (previous === 0) {
+      insights.push({ level: 'info', text: `${recent} admission${recent === 1 ? '' : 's'} in the last 3 months, with none in the 3 months before.` });
+    } else {
+      const change = percent(recent - previous, previous);
+      insights.push({
+        level: change > 25 ? 'warning' : 'info',
+        text: `Admissions in the last 3 months (${recent}) are ${change >= 0 ? 'up' : 'down'} ${Math.abs(change)}% compared with the 3 months before (${previous}).`
+      });
+    }
+  }
+
+  if (missingReports.length) {
+    insights.push({
+      level: 'warning',
+      text: `No monthly report uploaded for ${period} in: ${missingReports.join(', ')}.`
+    });
+  } else {
+    insights.push({ level: 'success', text: `Every care home has a monthly report uploaded for ${period}.` });
+  }
+
+  return insights;
+};
+
+app.get('/api/analytics/overview', requireAuth, requireRoles(caseManagementRoles), async (req, res) => {
+  try {
+    const query = async (sql, params = []) => (await db.promise().query(sql, params))[0];
+    const now = new Date();
+    const period = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    const [clients, homeRows, categoryRows, sexRows, referralRows, barangayRows, ageRows, admissionRows, returningRows, reportRows] = await Promise.all([
+      query('SELECT COUNT(*) AS count FROM clients'),
+      query('SELECT home_name AS label, COUNT(*) AS count FROM clients GROUP BY home_name ORDER BY count DESC'),
+      query("SELECT COALESCE(NULLIF(TRIM(case_category), ''), 'Unspecified') AS label, COUNT(*) AS count FROM clients GROUP BY label ORDER BY count DESC LIMIT 8"),
+      query("SELECT COALESCE(NULLIF(TRIM(sex), ''), 'Unspecified') AS label, COUNT(*) AS count FROM clients GROUP BY label ORDER BY count DESC"),
+      query("SELECT COALESCE(NULLIF(TRIM(source_of_referral), ''), 'Unspecified') AS label, COUNT(*) AS count FROM clients GROUP BY label ORDER BY count DESC LIMIT 5"),
+      query("SELECT COALESCE(NULLIF(TRIM(barangay), ''), 'Unspecified') AS label, COUNT(*) AS count FROM clients GROUP BY label ORDER BY count DESC LIMIT 5"),
+      query(`SELECT
+          CASE
+            WHEN age IS NULL THEN 'Unknown'
+            WHEN age < 6 THEN '0-5'
+            WHEN age < 13 THEN '6-12'
+            WHEN age < 18 THEN '13-17'
+            WHEN age < 60 THEN '18-59'
+            ELSE '60+'
+          END AS label,
+          COUNT(*) AS count
+        FROM clients GROUP BY label`),
+      query(`SELECT DATE_FORMAT(date_admitted, '%Y-%m') AS label, COUNT(*) AS count
+        FROM clients
+        WHERE date_admitted IS NOT NULL AND date_admitted >= DATE_SUB(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 11 MONTH)
+        GROUP BY label ORDER BY label`),
+      query('SELECT COUNT(*) AS count FROM clients WHERE facility_return_count > 0'),
+      query("SELECT DISTINCT home_name FROM home_reports WHERE report_type = 'monthly' AND report_period = ?", [period])
+    ]);
+
+    const total = Number(clients[0].count);
+    const normalize = (rows) => rows.map((row) => ({ label: row.label, count: Number(row.count) }));
+    const byHome = normalize(homeRows);
+    const byCategory = normalize(categoryRows);
+    const bySex = normalize(sexRows);
+
+    const ageOrder = ['0-5', '6-12', '13-17', '18-59', '60+', 'Unknown'];
+    const ageCounts = new Map(normalize(ageRows).map((row) => [row.label, row.count]));
+    const ageGroups = ageOrder
+      .filter((label) => ageCounts.has(label))
+      .map((label) => ({ label, count: ageCounts.get(label), minor: ['0-5', '6-12', '13-17'].includes(label) }));
+
+    const admissionCounts = new Map(normalize(admissionRows).map((row) => [row.label, row.count]));
+    const admissionsByMonth = Array.from({ length: 12 }, (_, index) => {
+      const date = new Date(now.getFullYear(), now.getMonth() - (11 - index), 1);
+      const label = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      return { label, count: admissionCounts.get(label) || 0 };
+    });
+
+    const returningCount = Number(returningRows[0].count);
+    const returning = { count: returningCount, rate: percent(returningCount, total) };
+    const reportedHomes = new Set(reportRows.map((row) => row.home_name));
+    const missingReports = careHomeNames.filter((home) => !reportedHomes.has(home));
+
+    res.json({
+      generated_at: now.toISOString(),
+      period,
+      totals: { clients: total, homes: byHome.length, returning: returningCount },
+      byHome,
+      byCategory,
+      bySex,
+      byReferral: normalize(referralRows),
+      byBarangay: normalize(barangayRows),
+      ageGroups: ageGroups.map(({ label, count }) => ({ label, count })),
+      admissionsByMonth,
+      insights: buildAnalyticsInsights({ total, byHome, byCategory, bySex, ageGroups, admissionsByMonth, returning, missingReports, period })
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Could not generate analytics.', error: error.message });
+  }
+});
+
 app.get('/api/dashboard', requireAuth, requireRoles(['superadmin', 'admin', 'social_worker', 'psychometrician', 'user']), (req, res) => {
   if (['psychometrician', 'user'].includes(req.auth.role)) {
     db.query('SELECT id, name, age, home_name, present_picture FROM clients ORDER BY name', (clientError, rows) => {
@@ -1345,7 +1493,7 @@ app.get('/api/search/clients', requireAuth, requireRoles(['superadmin', 'admin',
   });
 });
 
-app.get('/api/clients', requireAuth, requireRoles(caseManagementRoles), (req, res) => {
+app.get('/api/clients', requireAuth, requireRoles(homeReadRoles), (req, res) => {
   const { home_name } = req.query;
   let query = `SELECT ${clientSelectColumns} FROM clients`;
   const params = [];
@@ -1363,7 +1511,7 @@ app.get('/api/clients', requireAuth, requireRoles(caseManagementRoles), (req, re
   });
 });
 
-app.get('/api/clients/:id', requireAuth, requireRoles(caseManagementRoles), (req, res) => {
+app.get('/api/clients/:id', requireAuth, requireRoles(homeReadRoles), (req, res) => {
   const { id } = req.params;
 
   db.query(`SELECT ${clientSelectColumns} FROM clients WHERE id = ?`, [id], (err, rows) => {
@@ -1392,7 +1540,7 @@ app.get('/api/clients/:id/documents', requireAuth, requireRoles(caseManagementRo
   );
 });
 
-app.post('/api/clients/:id/documents', requireAuth, requireRoles(caseManagementRoles), uploadClientDocuments, (req, res) => {
+app.post('/api/clients/:id/documents', requireAuth, requireRoles(homeWriteRoles), uploadClientDocuments, (req, res) => {
   const files = req.files || [];
   if (!files.length) {
     return res.status(400).json({ message: 'Choose at least one document to upload.' });
@@ -1470,7 +1618,7 @@ app.get('/api/clients/:id/documents/:documentId/download', requireAuth, requireR
   );
 });
 
-app.delete('/api/clients/:id/documents/:documentId', requireAuth, requireRoles(caseManagementRoles), (req, res) => {
+app.delete('/api/clients/:id/documents/:documentId', requireAuth, requireRoles(homeWriteRoles), (req, res) => {
   db.query(
     'SELECT stored_name FROM client_documents WHERE id = ? AND client_id = ?',
     [req.params.documentId, req.params.id],
@@ -1497,7 +1645,7 @@ app.delete('/api/clients/:id/documents/:documentId', requireAuth, requireRoles(c
   );
 });
 
-app.get('/api/home-reports', requireAuth, requireRoles(caseManagementRoles), (req, res) => {
+app.get('/api/home-reports', requireAuth, requireRoles(homeReadRoles), (req, res) => {
   const { home_name, report_type, report_period } = req.query;
   const periodIsValid = report_type === 'monthly'
     ? /^\d{4}-(0[1-9]|1[0-2])$/.test(String(report_period || ''))
@@ -1519,7 +1667,7 @@ app.get('/api/home-reports', requireAuth, requireRoles(caseManagementRoles), (re
   );
 });
 
-app.post('/api/home-reports', requireAuth, requireRoles(caseManagementRoles), uploadHomeReportFiles, (req, res) => {
+app.post('/api/home-reports', requireAuth, requireRoles(homeWriteRoles), uploadHomeReportFiles, (req, res) => {
   const files = req.files || [];
   const { home_name, report_type, report_period } = req.body;
   const periodIsValid = report_type === 'monthly'
@@ -1558,7 +1706,7 @@ app.post('/api/home-reports', requireAuth, requireRoles(caseManagementRoles), up
   );
 });
 
-app.get('/api/home-reports/:reportId/download', requireAuth, requireRoles(caseManagementRoles), (req, res) => {
+app.get('/api/home-reports/:reportId/download', requireAuth, requireRoles(homeReadRoles), (req, res) => {
   db.query(
     'SELECT original_name, stored_name, home_name, report_type FROM home_reports WHERE id = ?',
     [req.params.reportId],
@@ -1578,7 +1726,7 @@ app.get('/api/home-reports/:reportId/download', requireAuth, requireRoles(caseMa
   );
 });
 
-app.delete('/api/home-reports/:reportId', requireAuth, requireRoles(caseManagementRoles), (req, res) => {
+app.delete('/api/home-reports/:reportId', requireAuth, requireRoles(homeWriteRoles), (req, res) => {
   db.query('SELECT stored_name FROM home_reports WHERE id = ?', [req.params.reportId], (findError, rows) => {
     if (findError) {
       return res.status(500).json({ message: 'Failed to find report file.', error: findError.message });
@@ -1598,7 +1746,7 @@ app.delete('/api/home-reports/:reportId', requireAuth, requireRoles(caseManageme
   });
 });
 
-app.post('/api/clients', requireAuth, requireRoles(caseManagementRoles), uploadClientImages, (req, res) => {
+app.post('/api/clients', requireAuth, requireRoles(homeWriteRoles), uploadClientImages, (req, res) => {
   const data = req.body;
   const nameParts = getClientNameParts(data);
   const requiredFields = [
@@ -1712,7 +1860,7 @@ app.post('/api/clients', requireAuth, requireRoles(caseManagementRoles), uploadC
   });
 });
 
-app.put('/api/clients/:id', requireAuth, requireRoles(caseManagementRoles), uploadClientImages, (req, res) => {
+app.put('/api/clients/:id', requireAuth, requireRoles(homeWriteRoles), uploadClientImages, (req, res) => {
   const { id } = req.params;
   const data = req.body;
   const nameParts = getClientNameParts(data);
@@ -1783,6 +1931,7 @@ app.put('/api/clients/:id', requireAuth, requireRoles(caseManagementRoles), uplo
     data.age_when_found,
     data.date_time_when_found,
     data.place_where_found,
+    data.present_whereabouts,
     id
   ];
 
@@ -1800,7 +1949,7 @@ app.put('/api/clients/:id', requireAuth, requireRoles(caseManagementRoles), uplo
   });
 });
 
-app.delete('/api/clients/:id', requireAuth, requireRoles(caseManagementRoles), (req, res) => {
+app.delete('/api/clients/:id', requireAuth, requireRoles(homeWriteRoles), (req, res) => {
   const { id } = req.params;
 
   db.query('SELECT stored_name FROM client_documents WHERE client_id = ?', [id], (documentsError, documents) => {
@@ -2275,6 +2424,8 @@ app.post('/api/assistant/chat', requireAuth, requireRoles(['superadmin', 'admin'
     model: 'unavailable'
   });
 });
+
+const behaviorAi = registerBehaviorAi({ app, db, requireAuth, requireRoles, documentDirectory });
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

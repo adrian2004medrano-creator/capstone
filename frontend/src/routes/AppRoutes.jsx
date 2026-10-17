@@ -15,6 +15,8 @@ import IDP from "../pages/IDP.jsx";
 import Counseling from "../pages/Counseling.jsx";
 import Admin from "../pages/Admin.jsx";
 import BackupDatabase from "../pages/BackupDatabase.jsx";
+import AIReports from "../pages/AIReports.jsx";
+import BehaviorMonitoring from "../pages/BehaviorMonitoring.jsx";
 import TeamChat from "../pages/TeamChat.jsx";
 import Profile from "../pages/Profile.jsx";
 
@@ -22,6 +24,7 @@ const isAuthenticated = () => localStorage.getItem("kalakbay_auth") === "true";
 const getUserRole = () => localStorage.getItem("kalakbay_role") || "user";
 const CASE_ROLES = ["superadmin", "admin", "social_worker"];
 const DASHBOARD_ROLES = [...CASE_ROLES, "psychometrician", "user"];
+const HOME_ROLES = [...CASE_ROLES, "psychometrician", "user"];
 const TEAM_CHAT_ROLES = [...DASHBOARD_ROLES];
 
 function ProtectedRoute({ children, allowedRoles = DASHBOARD_ROLES }) {
@@ -72,7 +75,7 @@ export default function AppRoutes() {
         <Route
           path="/girls-home"
           element={
-            <ProtectedRoute allowedRoles={CASE_ROLES}>
+            <ProtectedRoute allowedRoles={HOME_ROLES}>
               <GirlsHome />
             </ProtectedRoute>
           }
@@ -80,7 +83,7 @@ export default function AppRoutes() {
         <Route
           path="/boys-home"
           element={
-            <ProtectedRoute allowedRoles={CASE_ROLES}>
+            <ProtectedRoute allowedRoles={HOME_ROLES}>
               <BoysHome />
             </ProtectedRoute>
           }
@@ -88,7 +91,7 @@ export default function AppRoutes() {
         <Route
           path="/kids-home"
           element={
-            <ProtectedRoute allowedRoles={CASE_ROLES}>
+            <ProtectedRoute allowedRoles={HOME_ROLES}>
               <KidsHome />
             </ProtectedRoute>
           }
@@ -96,7 +99,7 @@ export default function AppRoutes() {
         <Route
           path="/aged-home"
           element={
-            <ProtectedRoute allowedRoles={CASE_ROLES}>
+            <ProtectedRoute allowedRoles={HOME_ROLES}>
               <HomefortheAged />
             </ProtectedRoute>
           }
@@ -104,7 +107,7 @@ export default function AppRoutes() {
         <Route
           path="/kamada"
           element={
-            <ProtectedRoute allowedRoles={CASE_ROLES}>
+            <ProtectedRoute allowedRoles={HOME_ROLES}>
               <Kamada />
             </ProtectedRoute>
           }
@@ -128,7 +131,7 @@ export default function AppRoutes() {
         <Route
           path="/clients/:id"
           element={
-            <ProtectedRoute allowedRoles={CASE_ROLES}>
+            <ProtectedRoute allowedRoles={HOME_ROLES}>
               <ClientProfile />
             </ProtectedRoute>
           }
@@ -154,6 +157,22 @@ export default function AppRoutes() {
           element={
             <ProtectedRoute allowedRoles={["superadmin"]}>
               <Admin />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/behavior-monitoring"
+          element={
+            <ProtectedRoute allowedRoles={DASHBOARD_ROLES}>
+              <BehaviorMonitoring />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/ai-reports"
+          element={
+            <ProtectedRoute allowedRoles={CASE_ROLES}>
+              <AIReports />
             </ProtectedRoute>
           }
         />

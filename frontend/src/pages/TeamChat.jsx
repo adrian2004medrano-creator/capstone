@@ -332,7 +332,7 @@ export default function TeamChat() {
           </div>
         )}
 
-        <div ref={messageListRef} aria-live="polite" aria-relevant="additions text" className="flex-1 space-y-4 overflow-y-auto bg-[#f7f8f6] px-4 py-5 sm:px-6">
+        <div ref={messageListRef} aria-live="polite" aria-relevant="additions text" className="flex-1 space-y-4 overflow-y-auto bg-[#f6f7f8] px-4 py-5 sm:px-6">
           {loading ? (
             <p className="py-8 text-center text-sm text-muted">Loading messages...</p>
           ) : mode === "private" && !selectedRecipientId ? (

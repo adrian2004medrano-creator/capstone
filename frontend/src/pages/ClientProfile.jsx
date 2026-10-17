@@ -14,6 +14,9 @@ const formatFileSize = (bytes) => {
 export default function ClientProfile() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const role = localStorage.getItem("kalakbay_role");
+  const canManageRecords = ["superadmin", "admin"].includes(role);
+  const canViewClientDocuments = !["psychometrician", "user"].includes(role);
   const [client, setClient] = useState(null);
   const [loading, setLoading] = useState(true);
   const [fullImage, setFullImage] = useState(null);
@@ -39,6 +42,8 @@ export default function ClientProfile() {
   }, [id]);
 
   useEffect(() => {
+    if (!canViewClientDocuments) return undefined;
+
     let cancelled = false;
 
     api.get(`/clients/${id}/documents`)
@@ -55,7 +60,7 @@ export default function ClientProfile() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [canViewClientDocuments, id]);
 
   useEffect(() => {
     if (!fullImage) return undefined;
@@ -188,15 +193,17 @@ export default function ClientProfile() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={() => navigate(clientHomeRoute(client.home_name), { state: { editClientId: client.id } })}
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
-            >
-              <Pencil size={16} /> Edit client
-            </button>
-          </div>
+          {canManageRecords && (
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => navigate(clientHomeRoute(client.home_name), { state: { editClientId: client.id } })}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-dark"
+              >
+                <Pencil size={16} /> Edit client
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -221,7 +228,7 @@ export default function ClientProfile() {
         </div>
       )}
 
-      <section className="rounded-xl2 bg-white p-5 shadow-card">
+      {canViewClientDocuments && <section className="rounded-xl2 bg-white p-5 shadow-card">
         <div className="flex items-center gap-3 border-b border-ink/5 pb-4">
           <FileText size={20} className="text-primary" />
           <div>
@@ -236,23 +243,25 @@ export default function ClientProfile() {
           </div>
         )}
 
-        <form onSubmit={handleDocumentUpload} className="mt-4 flex flex-col gap-3 md:flex-row md:items-center">
-          <input
-            type="file"
-            multiple
-            onChange={(event) => setDocumentFiles(Array.from(event.target.files || []))}
-            className="min-w-0 flex-1 rounded-lg border border-ink/10 bg-surface px-3 py-2 text-sm"
-            aria-label="Choose client documents"
-          />
-          <button
-            type="submit"
-            disabled={!documentFiles.length || uploadingDocuments}
-            className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Upload size={16} />
-            {uploadingDocuments ? "Uploading..." : `Upload${documentFiles.length ? ` (${documentFiles.length})` : ""}`}
-          </button>
-        </form>
+        {canManageRecords && (
+          <form onSubmit={handleDocumentUpload} className="mt-4 flex flex-col gap-3 md:flex-row md:items-center">
+            <input
+              type="file"
+              multiple
+              onChange={(event) => setDocumentFiles(Array.from(event.target.files || []))}
+              className="min-w-0 flex-1 rounded-lg border border-ink/10 bg-surface px-3 py-2 text-sm"
+              aria-label="Choose client documents"
+            />
+            <button
+              type="submit"
+              disabled={!documentFiles.length || uploadingDocuments}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Upload size={16} />
+              {uploadingDocuments ? "Uploading..." : `Upload${documentFiles.length ? ` (${documentFiles.length})` : ""}`}
+            </button>
+          </form>
+        )}
 
         <div className="mt-5">
           {documentsLoading ? (
@@ -281,21 +290,23 @@ export default function ClientProfile() {
                       <Download size={14} />
                       Download
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDocumentDelete(document)}
-                      aria-label={`Delete ${document.original_name}`}
-                      className="rounded-lg border border-risk/20 bg-risk-light p-2 text-risk hover:bg-risk hover:text-white"
-                    >
-                      <Trash2 size={15} />
-                    </button>
+                    {canManageRecords && (
+                      <button
+                        type="button"
+                        onClick={() => handleDocumentDelete(document)}
+                        aria-label={`Delete ${document.original_name}`}
+                        className="rounded-lg border border-risk/20 bg-risk-light p-2 text-risk hover:bg-risk hover:text-white"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
                   </div>
                 </li>
               ))}
             </ul>
           )}
         </div>
-      </section>
+      </section>}
 
       <div className="grid gap-6 lg:grid-cols-2">
         {profileFields.map(([label, value]) => (

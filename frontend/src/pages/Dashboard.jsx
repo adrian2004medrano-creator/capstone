@@ -71,10 +71,10 @@ export default function Dashboard() {
   return (
     <div className="space-y-7">
       <section>
-        <h2 className="font-display text-[25px] font-semibold uppercase leading-tight text-[#262b30]">
+        <h2 className="font-display text-[25px] font-semibold uppercase leading-tight text-[#242b32]">
           My dashboard
         </h2>
-        <p className="mt-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-[#7f8992]">
+        <p className="mt-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-[#788799]">
           {isSuperadmin
             ? "Live system and staff account overview"
               : isPsychometrician

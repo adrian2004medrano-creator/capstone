@@ -5,7 +5,10 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\"",
-    "seed:examples": "node scripts/seed-example-clients.js"
+    "seed:examples": "node scripts/seed-example-clients.js",
+    "generate:training-data": "node scripts/generate-training-data.js",
+    "import:kaggle": "node scripts/import-kaggle-datasets.js",
+    "train:ai": "node scripts/train-risk-model.js"
   },
   "keywords": [],
   "author": "",
@@ -17,8 +20,11 @@
     "dotenv": "^18.0.3",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
+    "jszip": "^3.10.2",
+    "mammoth": "^1.13.0",
     "multer": "^2.4.0",
     "mysql2": "^3.24.4",
-    "nodemailer": "^10.0.10"
+    "nodemailer": "^10.0.10",
+    "pdf-parse": "^2.4.5"
   }
 }

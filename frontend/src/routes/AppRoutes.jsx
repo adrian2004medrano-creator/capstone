@@ -23,6 +23,7 @@ import Profile from "../pages/Profile.jsx";
 const isAuthenticated = () => localStorage.getItem("kalakbay_auth") === "true";
 const getUserRole = () => localStorage.getItem("kalakbay_role") || "user";
 const CASE_ROLES = ["superadmin", "admin", "social_worker"];
+const AI_MODULE_ROLES = [...CASE_ROLES, "psychometrician"];
 const DASHBOARD_ROLES = [...CASE_ROLES, "psychometrician", "user"];
 const HOME_ROLES = [...CASE_ROLES, "psychometrician", "user"];
 const TEAM_CHAT_ROLES = [...DASHBOARD_ROLES];
@@ -139,7 +140,7 @@ export default function AppRoutes() {
         <Route
           path="/idp"
           element={
-            <ProtectedRoute allowedRoles={CASE_ROLES}>
+            <ProtectedRoute allowedRoles={AI_MODULE_ROLES}>
               <IDP />
             </ProtectedRoute>
           }
@@ -147,7 +148,7 @@ export default function AppRoutes() {
         <Route
           path="/counseling"
           element={
-            <ProtectedRoute allowedRoles={CASE_ROLES}>
+            <ProtectedRoute allowedRoles={AI_MODULE_ROLES}>
               <Counseling />
             </ProtectedRoute>
           }
@@ -171,7 +172,7 @@ export default function AppRoutes() {
         <Route
           path="/ai-reports"
           element={
-            <ProtectedRoute allowedRoles={CASE_ROLES}>
+            <ProtectedRoute allowedRoles={AI_MODULE_ROLES}>
               <AIReports />
             </ProtectedRoute>
           }

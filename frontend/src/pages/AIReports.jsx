@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, Info, RefreshCw, Sparkles } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, BrainCircuit, CheckCircle2, ClipboardList, FileText, HeartHandshake, Info, RefreshCw, ShieldAlert, Sparkles } from "lucide-react";
+import { Link } from "react-router-dom";
 import api from "../services/api.js";
 
 const INSIGHT_STYLES = {
@@ -8,11 +9,11 @@ const INSIGHT_STYLES = {
   success: { icon: CheckCircle2, className: "bg-primary-light text-primary-dark" },
 };
 
-function BarList({ title, rows }) {
+function BarList({ title, rows, framed = true }) {
   const max = Math.max(1, ...rows.map((row) => row.count));
 
   return (
-    <section className="rounded-xl2 bg-white p-5 shadow-card">
+    <section className={framed ? "rounded-xl2 bg-white p-5 shadow-card" : "min-w-0"}>
       <h3 className="font-display text-base font-bold text-ink900">{title}</h3>
       {rows.length === 0 ? (
         <p className="mt-4 text-sm text-muted">No data available.</p>
@@ -35,16 +36,50 @@ function BarList({ title, rows }) {
   );
 }
 
+function Metric({ label, value, detail, icon: Icon }) {
+  return (
+    <div className="rounded-xl2 bg-white p-5 shadow-card">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm text-muted">{label}</p>
+          <p className="mt-1 font-display text-3xl font-bold text-ink900">{value}</p>
+          {detail && <p className="mt-1 text-xs text-muted">{detail}</p>}
+        </div>
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-light text-primary-dark"><Icon size={18} /></span>
+      </div>
+    </div>
+  );
+}
+
+function ModuleSection({ title, href, children }) {
+  return (
+    <section className="rounded-xl2 bg-white p-5 shadow-card">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h3 className="font-display text-base font-bold text-ink900">{title}</h3>
+        <Link to={href} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-ink/10 px-3 py-1.5 text-sm font-semibold text-ink900 transition-colors hover:bg-surface">
+          Open module <ArrowUpRight size={15} />
+        </Link>
+      </div>
+      {children}
+    </section>
+  );
+}
+
 export default function AIReports() {
   const [data, setData] = useState(null);
+  const [model, setModel] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const loadAnalytics = async () => {
     setLoading(true);
     try {
-      const response = await api.get("/analytics/overview");
+      const [response, modelResponse] = await Promise.all([
+        api.get("/analytics/overview"),
+        api.get("/ai/model").catch(() => null),
+      ]);
       setData(response.data);
+      setModel(modelResponse?.data || null);
       setError("");
     } catch (requestError) {
       setError(requestError?.response?.data?.message || "Could not load analytics.");
@@ -107,6 +142,70 @@ export default function AIReports() {
                 );
               })}
             </ul>
+          </section>
+
+          <section>
+            <div className="mb-3 flex items-center gap-2">
+              <BrainCircuit size={19} className="text-primary-dark" />
+              <h3 className="font-display text-base font-bold text-ink900">AI workflow overview</h3>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <Metric label="Assessed clients" value={data.ai.risk.assessed_clients} detail="Clients with a recorded risk assessment" icon={ShieldAlert} />
+              <Metric label="Development plans" value={data.ai.idp.total} detail={`${data.ai.idp.ai_generated} generated with AI`} icon={ClipboardList} />
+              <Metric label="Counseling sessions" value={data.ai.counseling.total} detail={`${data.ai.counseling.ai_assisted} with an AI plan`} icon={HeartHandshake} />
+              <Metric label="AI-read case documents" value={data.ai.documents.analyzed} detail={`${data.ai.documents.total} documents recorded`} icon={FileText} />
+            </div>
+          </section>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            <ModuleSection title="Behavior & Risk Alerts" href="/behavior-monitoring">
+              <div className="mb-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+                <div><p className="text-muted">Observations</p><p className="mt-1 font-semibold text-ink900">{data.ai.behavior.observations}</p></div>
+                <div><p className="text-muted">Pending follow-ups</p><p className="mt-1 font-semibold text-ink900">{data.ai.behavior.pending_follow_ups}</p></div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <BarList title="Current assessed risk levels" rows={data.ai.risk.levels} framed={false} />
+                <BarList title="Recent assessments by month and risk" rows={data.ai.risk.recent_trend} framed={false} />
+              </div>
+            </ModuleSection>
+
+            <ModuleSection title="Individual Development Plans" href="/idp">
+              <div className="mb-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+                <div><p className="text-muted">Average goal progress</p><p className="mt-1 font-semibold text-ink900">{data.ai.idp.goals.average}%</p></div>
+                <div><p className="text-muted">Goals achieved</p><p className="mt-1 font-semibold text-ink900">{data.ai.idp.goals.achieved} / {data.ai.idp.goals.total}</p></div>
+              </div>
+              <BarList title="Plans by status" rows={data.ai.idp.statuses} framed={false} />
+            </ModuleSection>
+
+            <ModuleSection title="AI Counseling Sessions" href="/counseling">
+              <div className="mb-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+                <div><p className="text-muted">Upcoming</p><p className="mt-1 font-semibold text-ink900">{data.ai.counseling.upcoming}</p></div>
+                <div><p className="text-muted">AI-assisted</p><p className="mt-1 font-semibold text-ink900">{data.ai.counseling.ai_assisted}</p></div>
+              </div>
+              <BarList title="Sessions by status" rows={data.ai.counseling.statuses} framed={false} />
+            </ModuleSection>
+
+            <ModuleSection title="AI document analysis" href="/behavior-monitoring">
+              <BarList title="Case documents by analysis status" rows={data.ai.documents.statuses} framed={false} />
+            </ModuleSection>
+          </div>
+
+          <section className="rounded-xl2 bg-white p-5 shadow-card">
+            <div className="flex items-start gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-light text-primary-dark"><BrainCircuit size={18} /></span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-display text-base font-bold text-ink900">AI model status</h3>
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${model?.ready ? "bg-primary-light text-primary-dark" : "bg-amber-50 text-amber-700"}`}>
+                    {model?.training ? "Training" : model?.ready ? "Ready" : "Unavailable"}
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-muted">
+                  Automatic training: {model?.auto_training ? "on" : "unavailable"}. {model?.datasets?.length || 0} dataset(s); {model?.risk?.samples || 0} risk samples and {model?.text?.samples || 0} text samples.
+                </p>
+                {model?.error && <p className="mt-2 text-sm text-amber-700">{model.error}</p>}
+              </div>
+            </div>
           </section>
 
           <div className="grid gap-4 sm:grid-cols-3">

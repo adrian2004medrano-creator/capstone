@@ -76,6 +76,7 @@ const requireRoles = (roles) => (req, res, next) => {
 const requireBackupAccess = requireRoles(['superadmin', 'admin', 'social_worker']);
 const teamChatRoles = ['superadmin', 'admin', 'social_worker', 'psychometrician', 'user'];
 const caseManagementRoles = ['superadmin', 'admin', 'social_worker'];
+const aiAnalyticsRoles = [...caseManagementRoles, 'psychometrician'];
 const homeReadRoles = [...caseManagementRoles, 'psychometrician', 'user'];
 const homeWriteRoles = ['superadmin', 'admin'];
 
@@ -1322,13 +1323,14 @@ const buildAnalyticsInsights = ({ total, byHome, byCategory, bySex, ageGroups, a
   return insights;
 };
 
-app.get('/api/analytics/overview', requireAuth, requireRoles(caseManagementRoles), async (req, res) => {
+app.get('/api/analytics/overview', requireAuth, requireRoles(aiAnalyticsRoles), async (req, res) => {
   try {
     const query = async (sql, params = []) => (await db.promise().query(sql, params))[0];
     const now = new Date();
     const period = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-    const [clients, homeRows, categoryRows, sexRows, referralRows, barangayRows, ageRows, admissionRows, returningRows, reportRows] = await Promise.all([
+    const [clients, homeRows, categoryRows, sexRows, referralRows, barangayRows, ageRows, admissionRows, returningRows, reportRows,
+      riskRows, riskTrendRows, idpStatusRows, idpGoalRows, counselingStatusRows, followUpRows, documentStatusRows] = await Promise.all([
       query('SELECT COUNT(*) AS count FROM clients'),
       query('SELECT home_name AS label, COUNT(*) AS count FROM clients GROUP BY home_name ORDER BY count DESC'),
       query("SELECT COALESCE(NULLIF(TRIM(case_category), ''), 'Unspecified') AS label, COUNT(*) AS count FROM clients GROUP BY label ORDER BY count DESC LIMIT 8"),
@@ -1351,7 +1353,26 @@ app.get('/api/analytics/overview', requireAuth, requireRoles(caseManagementRoles
         WHERE date_admitted IS NOT NULL AND date_admitted >= DATE_SUB(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 11 MONTH)
         GROUP BY label ORDER BY label`),
       query('SELECT COUNT(*) AS count FROM clients WHERE facility_return_count > 0'),
-      query("SELECT DISTINCT home_name FROM home_reports WHERE report_type = 'monthly' AND report_period = ?", [period])
+      query("SELECT DISTINCT home_name FROM home_reports WHERE report_type = 'monthly' AND report_period = ?", [period]),
+      query(`SELECT latest.risk_level AS label, COUNT(*) AS count
+        FROM risk_assessments latest
+        INNER JOIN (SELECT client_id, MAX(id) AS id FROM risk_assessments GROUP BY client_id) latest_ids
+          ON latest_ids.id = latest.id
+        GROUP BY latest.risk_level ORDER BY latest.risk_level`),
+      query(`SELECT DATE_FORMAT(created_at, '%Y-%m') AS period, risk_level, COUNT(*) AS count
+        FROM risk_assessments
+        WHERE created_at >= DATE_SUB(DATE_FORMAT(CURDATE(), '%Y-%m-01'), INTERVAL 5 MONTH)
+        GROUP BY period, risk_level ORDER BY period, risk_level`),
+      query('SELECT status AS label, COUNT(*) AS count, SUM(generated_by_ai = 1) AS ai_generated FROM individual_development_plans GROUP BY status'),
+      query('SELECT goals FROM individual_development_plans'),
+      query(`SELECT status AS label, COUNT(*) AS count,
+          SUM(ai_plan IS NOT NULL AND ai_plan <> '') AS ai_assisted,
+          SUM(status = 'scheduled' AND session_date >= CURDATE()) AS upcoming
+        FROM counseling_sessions GROUP BY status`),
+      query(`SELECT COUNT(*) AS total,
+          SUM(follow_up_needed = 1 AND psychometrician_remarks IS NULL) AS pending
+        FROM behavior_observations`),
+      query('SELECT status AS label, COUNT(*) AS count FROM case_record_documents GROUP BY status')
     ]);
 
     const total = Number(clients[0].count);
@@ -1378,6 +1399,49 @@ app.get('/api/analytics/overview', requireAuth, requireRoles(caseManagementRoles
     const reportedHomes = new Set(reportRows.map((row) => row.home_name));
     const missingReports = careHomeNames.filter((home) => !reportedHomes.has(home));
 
+    const riskLevels = normalize(riskRows).map(({ label, count }) => ({ label: String(label || 'unknown').toLowerCase(), count }));
+    const riskTrend = riskTrendRows.map((row) => ({
+      label: `${row.period} · ${String(row.risk_level || 'unknown').toLowerCase()}`,
+      count: Number(row.count)
+    }));
+    const idpStatuses = idpStatusRows.map((row) => ({ label: row.label, count: Number(row.count) }));
+    const idpCount = idpStatuses.reduce((sum, row) => sum + row.count, 0);
+    const aiGeneratedPlans = idpStatusRows.reduce((sum, row) => sum + Number(row.ai_generated || 0), 0);
+    const goalProgress = { total: 0, achieved: 0, in_progress: 0, not_started: 0, average: 0 };
+    for (const row of idpGoalRows) {
+      let goals;
+      try {
+        goals = row.goals ? JSON.parse(row.goals) : [];
+      } catch {
+        goals = [];
+      }
+      if (!Array.isArray(goals)) continue;
+      for (const goal of goals) {
+        goalProgress.total += 1;
+        if (['achieved', 'in_progress', 'not_started'].includes(goal?.status)) goalProgress[goal.status] += 1;
+        const progress = Number(goal?.progress);
+        goalProgress.average += Number.isFinite(progress) ? Math.min(100, Math.max(0, progress)) : 0;
+      }
+    }
+    goalProgress.average = goalProgress.total ? Math.round(goalProgress.average / goalProgress.total) : 0;
+
+    const counselingStatuses = counselingStatusRows.map((row) => ({ label: row.label, count: Number(row.count) }));
+    const counselingCount = counselingStatuses.reduce((sum, row) => sum + row.count, 0);
+    const aiAssistedSessions = counselingStatusRows.reduce((sum, row) => sum + Number(row.ai_assisted || 0), 0);
+    const upcomingSessions = counselingStatusRows.reduce((sum, row) => sum + Number(row.upcoming || 0), 0);
+    const documentsByStatus = normalize(documentStatusRows);
+    const documentCount = documentsByStatus.reduce((sum, row) => sum + row.count, 0);
+    const analyzedDocuments = documentsByStatus.find((row) => row.label === 'analyzed')?.count || 0;
+    const pendingFollowUps = Number(followUpRows[0]?.pending || 0);
+    const assessedClients = riskRows.reduce((sum, row) => sum + Number(row.count), 0);
+    const aiInsights = [];
+    const highRisk = riskLevels.find((row) => row.label === 'high')?.count || 0;
+    if (highRisk) aiInsights.push({ level: 'warning', text: `${highRisk} assessed client${highRisk === 1 ? '' : 's'} currently have high risk alerts.` });
+    if (pendingFollowUps) aiInsights.push({ level: 'warning', text: `${pendingFollowUps} behavior follow-up${pendingFollowUps === 1 ? '' : 's'} are awaiting psychometrician remarks.` });
+    if (idpCount && goalProgress.total) aiInsights.push({ level: 'info', text: `IDP goals are ${goalProgress.average}% complete on average (${goalProgress.achieved} of ${goalProgress.total} marked achieved).` });
+    if (upcomingSessions) aiInsights.push({ level: 'info', text: `${upcomingSessions} counseling session${upcomingSessions === 1 ? '' : 's'} are scheduled for today or later.` });
+    if (!aiInsights.length) aiInsights.push({ level: 'info', text: 'AI workflow activity will appear here as risk assessments, plans, and sessions are recorded.' });
+
     res.json({
       generated_at: now.toISOString(),
       period,
@@ -1389,7 +1453,17 @@ app.get('/api/analytics/overview', requireAuth, requireRoles(caseManagementRoles
       byBarangay: normalize(barangayRows),
       ageGroups: ageGroups.map(({ label, count }) => ({ label, count })),
       admissionsByMonth,
-      insights: buildAnalyticsInsights({ total, byHome, byCategory, bySex, ageGroups, admissionsByMonth, returning, missingReports, period })
+      insights: [
+        ...buildAnalyticsInsights({ total, byHome, byCategory, bySex, ageGroups, admissionsByMonth, returning, missingReports, period }),
+        ...aiInsights
+      ],
+      ai: {
+        risk: { assessed_clients: assessedClients, levels: riskLevels, recent_trend: riskTrend },
+        idp: { total: idpCount, ai_generated: aiGeneratedPlans, statuses: idpStatuses, goals: goalProgress },
+        counseling: { total: counselingCount, ai_assisted: aiAssistedSessions, upcoming: upcomingSessions, statuses: counselingStatuses },
+        behavior: { observations: Number(followUpRows[0]?.total || 0), pending_follow_ups: pendingFollowUps },
+        documents: { total: documentCount, analyzed: analyzedDocuments, statuses: documentsByStatus }
+      }
     });
   } catch (error) {
     res.status(500).json({ message: 'Could not generate analytics.', error: error.message });

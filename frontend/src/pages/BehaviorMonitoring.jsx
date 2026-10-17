@@ -141,6 +141,20 @@ export default function BehaviorMonitoring() {
     }
   };
 
+  const handleDeleteBehaviorRecords = async (client) => {
+    const confirmed = window.confirm(`Delete all behavior observations and risk assessments for ${client.name}? The client, IDP, counseling, and other records will be kept.`);
+    if (!confirmed) return;
+    setError("");
+    try {
+      const { data } = await api.delete(`/behavior/clients/${client.id}/records`);
+      if (detail && String(detail.client.id) === String(client.id)) setDetail(null);
+      await loadOverview();
+      setSuccess(`${data.message} (${data.deleted_observations} observations, ${data.deleted_assessments} assessments).`);
+    } catch (requestError) {
+      setError(requestError?.response?.data?.message || "Could not delete behavior records.");
+    }
+  };
+
   const refreshAfterChange = async (clientId) => {
     await Promise.all([loadOverview(), loadDetail(clientId)]);
   };
@@ -389,6 +403,12 @@ export default function BehaviorMonitoring() {
                             <Link to={`/counseling?client=${client.id}`} title="Counseling sessions" aria-label={`Counseling for ${client.name}`} className="ml-2 inline-block align-middle text-muted hover:text-primary"><HeartHandshake size={16} /></Link>
                           </>
                         )}
+                        {isAdmin && (
+                          <button type="button" onClick={() => handleDeleteBehaviorRecords(client)} title="Delete behavior observations and risk assessments"
+                            aria-label={`Delete behavior records for ${client.name}`} className="ml-3 inline-block align-middle text-muted hover:text-risk">
+                            <Trash2 size={16} />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -558,7 +578,7 @@ export default function BehaviorMonitoring() {
               <label className="block text-sm font-semibold text-ink900">Client
                 <select required value={form.client_id} onChange={(event) => update("client_id", event.target.value)} className={`${inputClass} mt-1 font-normal`}>
                   <option value="">Select a client...</option>
-                  {overview?.clients.map((client) => <option key={client.id} value={client.id}>{client.name} — {client.home_name}</option>)}
+                  {overview?.clientOptions.map((client) => <option key={client.id} value={client.id}>{client.name} — {client.home_name}</option>)}
                 </select>
               </label>
               <label className="block text-sm font-semibold text-ink900">Date observed

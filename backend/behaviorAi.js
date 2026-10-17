@@ -12,6 +12,7 @@ const { SUPPORTED_EXTENSIONS, readDocument, aggregateAnalyses } = require('./ai/
 
 const ALL_ROLES = ['superadmin', 'admin', 'social_worker', 'psychometrician', 'user'];
 const CASE_ROLES = ['superadmin', 'admin', 'social_worker'];
+const AI_MODULE_ROLES = [...CASE_ROLES, 'psychometrician'];
 const ADMIN_ROLES = ['superadmin', 'admin'];
 const REMARK_ROLES = ['superadmin', 'psychometrician', 'user'];
 const RISK_ORDER = { high: 0, medium: 1, low: 2 };
@@ -398,7 +399,7 @@ module.exports = function registerBehaviorAi({ app, db, requireAuth, requireRole
   // Behavior observations and risk alerts
 
   app.get('/api/behavior/risk-overview', requireAuth, requireRoles(ALL_ROLES), wrap(async (req, res) => {
-    const [rows, unassessedRows] = await Promise.all([query(`
+    const [rows, unassessedRows, clientOptionRows] = await Promise.all([query(`
       SELECT c.id, c.name, c.age, c.home_name, c.present_picture,
         ra.risk_level, ra.risk_score, ra.factors, ra.created_at AS assessed_at,
         (SELECT COUNT(*) FROM behavior_observations o WHERE o.client_id = c.id) AS observation_count,
@@ -410,7 +411,7 @@ module.exports = function registerBehaviorAi({ app, db, requireAuth, requireRole
       SELECT COUNT(*) AS count
       FROM clients c
       WHERE NOT EXISTS (SELECT 1 FROM risk_assessments ra WHERE ra.client_id = c.id)
-    `)]);
+    `), query('SELECT id, name, home_name FROM clients ORDER BY name ASC')]);
     const clients = rows.map((row) => ({
       id: row.id,
       name: row.name,
@@ -436,6 +437,7 @@ module.exports = function registerBehaviorAi({ app, db, requireAuth, requireRole
         unassessed: Number(unassessedRows[0].count),
         awaiting_response: clients.reduce((sum, client) => sum + client.awaiting_response, 0)
       },
+      clientOptions: clientOptionRows,
       clients
     });
   }));
@@ -529,6 +531,27 @@ module.exports = function registerBehaviorAi({ app, db, requireAuth, requireRole
       await query('DELETE FROM risk_assessments WHERE client_id = ?', [observation.client_id]);
     }
     res.json({ message: 'Observation deleted.' });
+  }));
+
+  app.delete('/api/behavior/clients/:id/records', requireAuth, requireRoles(ADMIN_ROLES), wrap(async (req, res) => {
+    const clientId = parseId(req.params.id);
+    if (!clientId || !(await getClient(clientId))) return res.status(404).json({ message: 'Client not found.' });
+
+    const connection = db.promise();
+    await connection.beginTransaction();
+    try {
+      const [observations] = await connection.query('DELETE FROM behavior_observations WHERE client_id = ?', [clientId]);
+      const [assessments] = await connection.query('DELETE FROM risk_assessments WHERE client_id = ?', [clientId]);
+      await connection.commit();
+      res.json({
+        message: 'Behavior records deleted.',
+        deleted_observations: observations.affectedRows,
+        deleted_assessments: assessments.affectedRows
+      });
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    }
   }));
 
   // Psychometrician responses to observations
@@ -637,14 +660,14 @@ module.exports = function registerBehaviorAi({ app, db, requireAuth, requireRole
   const PLAN_COLUMNS = `id, client_id, status, summary, goals, recommendations, risk_level, risk_score, generated_by_ai,
     DATE_FORMAT(review_date, '%Y-%m-%d') AS review_date, approved_at, created_at, updated_at`;
 
-  app.get('/api/idp', requireAuth, requireRoles(CASE_ROLES), wrap(async (req, res) => {
+  app.get('/api/idp', requireAuth, requireRoles(AI_MODULE_ROLES), wrap(async (req, res) => {
     const clientId = parseId(req.query.client_id);
     if (!clientId) throw new ValidationError('Choose a client.');
     const rows = await query(`SELECT ${PLAN_COLUMNS} FROM individual_development_plans WHERE client_id = ? ORDER BY id DESC`, [clientId]);
     res.json(rows.map(formatPlan));
   }));
 
-  app.post('/api/idp/generate', requireAuth, requireRoles(CASE_ROLES), wrap(async (req, res) => {
+  app.post('/api/idp/generate', requireAuth, requireRoles(AI_MODULE_ROLES), wrap(async (req, res) => {
     const clientId = parseId(req.body.client_id);
     const client = clientId && await getClient(clientId);
     if (!client) return res.status(404).json({ message: 'Client not found.' });
@@ -662,7 +685,7 @@ module.exports = function registerBehaviorAi({ app, db, requireAuth, requireRole
     res.status(201).json(formatPlan(row));
   }));
 
-  app.put('/api/idp/:id', requireAuth, requireRoles(CASE_ROLES), wrap(async (req, res) => {
+  app.put('/api/idp/:id', requireAuth, requireRoles(AI_MODULE_ROLES), wrap(async (req, res) => {
     const id = parseId(req.params.id);
     const [existing] = id ? await query('SELECT id, status FROM individual_development_plans WHERE id = ?', [id]) : [];
     if (!existing) return res.status(404).json({ message: 'Plan not found.' });
@@ -703,7 +726,7 @@ module.exports = function registerBehaviorAi({ app, db, requireAuth, requireRole
   const SESSION_COLUMNS = `id, client_id, DATE_FORMAT(session_date, '%Y-%m-%d') AS session_date, session_type, status, focus, ai_plan, notes, outcome,
     DATE_FORMAT(next_session_date, '%Y-%m-%d') AS next_session_date, created_at`;
 
-  app.get('/api/counseling/suggest', requireAuth, requireRoles(CASE_ROLES), wrap(async (req, res) => {
+  app.get('/api/counseling/suggest', requireAuth, requireRoles(AI_MODULE_ROLES), wrap(async (req, res) => {
     const clientId = parseId(req.query.client_id);
     const client = clientId && await getClient(clientId);
     if (!client) return res.status(404).json({ message: 'Client not found.' });
@@ -712,7 +735,7 @@ module.exports = function registerBehaviorAi({ app, db, requireAuth, requireRole
     res.json({ assessment: assessment.baseline ? null : assessment, plan: buildCounselingPlan(client, assessment) });
   }));
 
-  app.get('/api/counseling/sessions', requireAuth, requireRoles(CASE_ROLES), wrap(async (req, res) => {
+  app.get('/api/counseling/sessions', requireAuth, requireRoles(AI_MODULE_ROLES), wrap(async (req, res) => {
     const clientId = parseId(req.query.client_id);
     if (!clientId) throw new ValidationError('Choose a client.');
     const rows = await query(`SELECT ${SESSION_COLUMNS} FROM counseling_sessions WHERE client_id = ? ORDER BY session_date DESC, id DESC`, [clientId]);
@@ -738,7 +761,7 @@ module.exports = function registerBehaviorAi({ app, db, requireAuth, requireRole
     return session;
   };
 
-  app.post('/api/counseling/sessions', requireAuth, requireRoles(CASE_ROLES), wrap(async (req, res) => {
+  app.post('/api/counseling/sessions', requireAuth, requireRoles(AI_MODULE_ROLES), wrap(async (req, res) => {
     const clientId = parseId(req.body.client_id);
     if (!clientId || !(await getClient(clientId))) return res.status(404).json({ message: 'Client not found.' });
 
@@ -754,7 +777,7 @@ module.exports = function registerBehaviorAi({ app, db, requireAuth, requireRole
     res.status(201).json(formatSession(row));
   }));
 
-  app.put('/api/counseling/sessions/:id', requireAuth, requireRoles(CASE_ROLES), wrap(async (req, res) => {
+  app.put('/api/counseling/sessions/:id', requireAuth, requireRoles(AI_MODULE_ROLES), wrap(async (req, res) => {
     const id = parseId(req.params.id);
     const session = readSessionBody(req.body);
     const result = id ? await query(

@@ -36,7 +36,11 @@ export default function Sidebar({ isOpen, onClose }) {
     if (to === "/admin") return role === "superadmin";
     if (to === "/ai-reports") return ["superadmin", "admin", "social_worker"].includes(role);
     if (to === "/database-backups") return ["superadmin", "admin", "social_worker"].includes(role);
-    if (isPsychometrician) return to === "/dashboard" || to === "/team-chat" || to === "/behavior-monitoring" || to.includes("-home") || to === "/kamada";
+    if (isPsychometrician) {
+      const sharedPages = to === "/dashboard" || to === "/team-chat" || to === "/behavior-monitoring" || to.includes("-home") || to === "/kamada";
+      const psychometricianPages = role === "psychometrician" && ["/ai-reports", "/idp", "/counseling"].includes(to);
+      return sharedPages || psychometricianPages;
+    }
     return true;
   });
   const navLinkClass = ({ isActive }) =>

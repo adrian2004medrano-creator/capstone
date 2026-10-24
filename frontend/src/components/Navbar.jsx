@@ -206,20 +206,6 @@ export default function Navbar({ onToggleSidebar }) {
     }
   };
 
-  const handleNotificationOpen = (notification) => {
-    setNotificationsOpen(false);
-    if (notification.message.startsWith("New private message")) {
-      navigate("/team-chat", { state: { chatMode: "private", recipientId: notification.actor_id } });
-    } else {
-      navigate("/team-chat");
-    }
-  };
-
-  const isChatNotification = (notification) => (
-    notification.message.startsWith("New team chat message")
-    || notification.message.startsWith("New private message")
-  );
-
   return (
     <header className="sticky top-0 z-20 flex min-h-[88px] items-center justify-between gap-3 border-b border-[#e1e5e9] bg-white px-3 sm:px-6 lg:px-9">
       <div className="flex min-w-0 items-center gap-2 sm:gap-3">
@@ -329,13 +315,7 @@ export default function Navbar({ onToggleSidebar }) {
                       <li key={notification.id} className={`flex items-start gap-3 px-4 py-3 ${notification.read_at ? "bg-white" : "bg-[#f7f9fa]"}`}>
                         <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${notification.read_at ? "bg-transparent" : "bg-risk"}`} />
                         <div className="min-w-0 flex-1">
-                          {isChatNotification(notification) ? (
-                            <button type="button" onClick={() => handleNotificationOpen(notification)} className="text-left text-sm leading-snug text-[#313943] hover:text-primary">
-                              {notification.message}
-                            </button>
-                          ) : (
-                            <p className="text-sm leading-snug text-[#313943]">{notification.message}</p>
-                          )}
+                          <p className="text-sm leading-snug text-[#313943]">{notification.message}</p>
                           <p className="mt-1 text-xs text-[#8290a1]">{new Date(notification.created_at).toLocaleString()}</p>
                         </div>
                         <button

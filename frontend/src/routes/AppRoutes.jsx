@@ -17,7 +17,6 @@ import Admin from "../pages/Admin.jsx";
 import BackupDatabase from "../pages/BackupDatabase.jsx";
 import AIReports from "../pages/AIReports.jsx";
 import BehaviorMonitoring from "../pages/BehaviorMonitoring.jsx";
-import TeamChat from "../pages/TeamChat.jsx";
 import Profile from "../pages/Profile.jsx";
 
 const isAuthenticated = () => localStorage.getItem("kalakbay_auth") === "true";
@@ -26,8 +25,6 @@ const CASE_ROLES = ["superadmin", "admin", "social_worker"];
 const AI_MODULE_ROLES = [...CASE_ROLES, "psychometrician"];
 const DASHBOARD_ROLES = [...CASE_ROLES, "psychometrician", "user"];
 const HOME_ROLES = [...CASE_ROLES, "psychometrician", "user"];
-const TEAM_CHAT_ROLES = [...DASHBOARD_ROLES];
-
 function ProtectedRoute({ children, allowedRoles = DASHBOARD_ROLES }) {
   const location = useLocation();
   const authenticated = isAuthenticated();
@@ -57,14 +54,6 @@ export default function AppRoutes() {
         }
       >
         <Route path="/profile" element={<Profile />} />
-        <Route
-          path="/team-chat"
-          element={
-            <ProtectedRoute allowedRoles={TEAM_CHAT_ROLES}>
-              <TeamChat />
-            </ProtectedRoute>
-          }
-        />
         <Route
           path="/dashboard"
           element={

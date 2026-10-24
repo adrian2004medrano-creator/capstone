@@ -6,7 +6,6 @@ import {
   X,
   Building2,
   Database,
-  MessagesSquare,
   Sparkles,
   Activity,
   ClipboardList,
@@ -15,7 +14,6 @@ import {
 
 const navItems = [
   { section: "Workspace", to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { section: "Workspace", to: "/team-chat", label: "Team Chat", icon: MessagesSquare },
   { section: "Care homes", to: "/girls-home", label: "Girls Home", icon: House },
   { section: "Care homes", to: "/boys-home", label: "Boys Home", icon: Building2 },
   { section: "Care homes", to: "/kids-home", label: "Kids Home", icon: House },
@@ -37,7 +35,7 @@ export default function Sidebar({ isOpen, onClose }) {
     if (to === "/ai-reports") return ["superadmin", "admin", "social_worker"].includes(role);
     if (to === "/database-backups") return ["superadmin", "admin", "social_worker"].includes(role);
     if (isPsychometrician) {
-      const sharedPages = to === "/dashboard" || to === "/team-chat" || to === "/behavior-monitoring" || to.includes("-home") || to === "/kamada";
+      const sharedPages = to === "/dashboard" || to === "/behavior-monitoring" || to.includes("-home") || to === "/kamada";
       const psychometricianPages = role === "psychometrician" && ["/ai-reports", "/idp", "/counseling"].includes(to);
       return sharedPages || psychometricianPages;
     }
